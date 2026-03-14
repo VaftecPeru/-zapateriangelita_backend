@@ -10,7 +10,7 @@ return [
 
     'debug' => (bool) env('APP_DEBUG', false),
 
-    'url' => env('APP_URL', 'http://localhost'),
+    'url' => env('APP_', 'http://localhost'),
 
     'asset_url' => env('ASSET_URL'),
 
@@ -28,7 +28,7 @@ return [
 
     'maintenance' => [
         'driver' => 'file',
-        // 'store' => 'redis',
+        
     ],
 
 

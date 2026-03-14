@@ -11,3 +11,5 @@ CHANGELOG.md export-ignore
 .styleci.yml export-ignore
 
 * text=auto
+*.phar
+composer.phar
