@@ -25,8 +25,13 @@ class PropertyController extends Controller
             'price' => 'required|numeric',
             'rating' => 'numeric',
             'reviews' => 'integer',
-            'img' => 'string',
+            'img' => 'required', // Can be string (URL) or file
         ]);
+
+        if ($request->hasFile('img')) {
+            $path = $request->file('img')->store('properties', 'public');
+            $validated['img'] = asset('storage/' . $path);
+        }
 
         $property = Property::create($validated);
         return response()->json($property, 201);
@@ -50,8 +55,13 @@ class PropertyController extends Controller
             'price' => 'numeric',
             'rating' => 'numeric',
             'reviews' => 'integer',
-            'img' => 'string',
+            'img' => 'nullable',
         ]);
+
+        if ($request->hasFile('img')) {
+            $path = $request->file('img')->store('properties', 'public');
+            $validated['img'] = asset('storage/' . $path);
+        }
 
         $property->update($validated);
         return response()->json($property);

@@ -31,12 +31,13 @@ class AuthController extends Controller
         $user = User::create([
             'name' => $request->name,
             'email' => $request->email,
-            'password' => Hash::make($request->password),
+            'password' => $request->password,
             'gender' => $request->gender,
             'birthdate' => $request->birthdate,
             'department' => $request->department,
             'province' => $request->province,
             'district' => $request->district,
+            'role' => 'user',
         ]);
 
         $token = $user->createToken('auth_token')->plainTextToken;
