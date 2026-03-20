@@ -10,9 +10,9 @@ return [
 
     'debug' => (bool) env('APP_DEBUG', false),
 
-    'url' => env('APP_', 'http://localhost'),
+    'url' => env('APP_URL', 'https://umbralsuites.com'),
 
-    'asset_url' => env('ASSET_URL'),
+    'asset_url' => env('ASSET_URL', null),
 
     'timezone' => 'UTC',
 

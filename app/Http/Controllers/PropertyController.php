@@ -42,6 +42,12 @@ class PropertyController extends Controller
         return response()->json($property->load('rooms'));
     }
 
+    public function trackView(Property $property)
+    {
+        $property->increment('views');
+        return response()->json(['success' => true]);
+    }
+
     public function update(Request $request, Property $property)
     {
         $validated = $request->validate([
