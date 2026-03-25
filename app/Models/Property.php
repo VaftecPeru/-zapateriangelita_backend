@@ -18,15 +18,20 @@ class Property extends Model
         'baths',
         'area',
         'price',
+        'discounted_price',
         'rating',
         'reviews',
         'img',
+        'images',
+        'amenities',
     ];
+
 
     protected $casts = [
         'beds' => 'integer',
         'baths' => 'integer',
         'rating' => 'float',
         'reviews' => 'integer',
+        'images' => 'array',
     ];
 }

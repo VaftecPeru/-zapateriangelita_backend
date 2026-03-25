@@ -12,6 +12,7 @@ class DatabaseSeeder extends Seeder
     {
         $this->call([
             PropertySeeder::class,
+            AdditionalServiceSeeder::class,
         ]);
     }
 }

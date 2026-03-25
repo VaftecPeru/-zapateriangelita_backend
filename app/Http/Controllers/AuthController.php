@@ -6,15 +6,16 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Http\JsonResponse;
 
 class AuthController extends Controller
 {
-    public function register(Request $request)
+    public function register(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users',
-            'password' => 'required|string|min:8|confirmed',
+            'email' => 'required|string|email:rfc,dns|max:255|unique:users|regex:/^[^@]+@[^@]+\.[^@]{2,}$/',
+            'password' => 'required|string|min:12|regex:/[A-Z]/|regex:/[0-9]/|confirmed',
             'gender' => 'required|string',
             'birthdate' => 'required|date|before_or_equal:' . now()->subYears(18)->format('Y-m-d'),
             'department' => 'required|string',
@@ -22,6 +23,7 @@ class AuthController extends Controller
             'district' => 'required|string',
         ], [
             'birthdate.before_or_equal' => 'Debes ser mayor de edad para registrarte.',
+            'password.regex' => 'La contraseña debe tener mayúsculas y números.',
         ]);
 
         if ($validator->fails()) {
@@ -42,14 +44,25 @@ class AuthController extends Controller
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
-        return response()->json([
-            'token' => $token,
-            'token_type' => 'Bearer',
-            'user' => $user,
-        ]);
+        return response()
+            ->json([
+                'token_type' => 'Bearer',
+                'user' => $user,
+            ])
+            ->cookie(
+                'sanctum_token',
+                $token,
+                60 * 24 * 7,
+                '/',
+                null,
+                env('APP_ENV') === 'production',
+                true,
+                false,
+                'lax'
+            );
     }
 
-    public function login(Request $request)
+    public function login(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'email' => 'required|string|email',
@@ -70,19 +83,30 @@ class AuthController extends Controller
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
-        return response()->json([
-            'token' => $token,
-            'token_type' => 'Bearer',
-            'user' => $user,
-        ]);
+        return response()
+            ->json([
+                'token_type' => 'Bearer',
+                'user' => $user,
+            ])
+            ->cookie(
+                'sanctum_token',
+                $token,
+                60 * 24 * 7,
+                '/',
+                null,
+                env('APP_ENV') === 'production',
+                true,
+                false,
+                'lax'
+            );
     }
 
-    public function logout(Request $request)
+    public function logout(Request $request): JsonResponse
     {
         $request->user()->currentAccessToken()->delete();
 
         return response()->json([
             'message' => 'Sesión cerrada correctamente'
-        ]);
+        ])->withoutCookie('sanctum_token');
     }
 }

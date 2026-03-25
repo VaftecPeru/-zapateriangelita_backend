@@ -13,5 +13,6 @@ class AdditionalService extends Model
         'name',
         'description',
         'price',
+        'tag',
     ];
 }

@@ -21,7 +21,6 @@ class User extends Authenticatable
         'department',
         'province',
         'district',
-        'role',
     ];
 
     /**

@@ -4,13 +4,20 @@ namespace App\Http\Controllers;
 
 use App\Models\Setting;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 
 class SettingController extends Controller
 {
     
-    public function index()
+    public function index(): JsonResponse
     {
-        $settings = Setting::all()->pluck('value', 'key')->all();
+        // Solo permitimos exponer llaves que no sean sensibles
+        $publicKeys = ['whatsapp_number', 'company_name', 'logo_url', 'contact_email'];
+        
+        $settings = Setting::whereIn('key', $publicKeys)
+            ->get()
+            ->pluck('value', 'key')
+            ->all();
         
         return response()->json([
             'success' => true,
@@ -19,8 +26,13 @@ class SettingController extends Controller
     }
 
     
-    public function update(Request $request, string $key)
+    public function update(Request $request, string $key): JsonResponse
     {
+        // ✅ Solo admin puede cambiar configuración
+        if (auth('sanctum')->user()?->role !== 'admin') {
+            return response()->json(['message' => 'No tienes permisos para cambiar la configuración'], 403);
+        }
+
         $request->validate([
             'value' => 'required'
         ]);
@@ -32,7 +44,7 @@ class SettingController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Setting updated successfully',
+            'message' => 'Configuración actualizada',
             'data' => $setting
         ]);
     }

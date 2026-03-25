@@ -39,8 +39,7 @@ class Kernel extends HttpKernel
         ],
 
         'api' => [
-            
-            \Illuminate\Routing\Middleware\ThrottleRequests::class.':api',
+            \Illuminate\Routing\Middleware\ThrottleRequests::class.':60,1',  // ✅ 60 req/min por defecto
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
         ],
     ];
@@ -58,6 +57,8 @@ class Kernel extends HttpKernel
         'auth.session' => \Illuminate\Session\Middleware\AuthenticateSession::class,
         'cache.headers' => \Illuminate\Http\Middleware\SetCacheHeaders::class,
         'can' => \Illuminate\Auth\Middleware\Authorize::class,
+        'admin' => \App\Http\Middleware\IsAdmin::class,
+        'compress' => \App\Http\Middleware\CompressResponse::class,  // ✅ Gzip compression
         'guest' => \App\Http\Middleware\RedirectIfAuthenticated::class,
         'password.confirm' => \Illuminate\Auth\Middleware\RequirePassword::class,
         'precognitive' => \Illuminate\Foundation\Http\Middleware\HandlePrecognitiveRequests::class,
