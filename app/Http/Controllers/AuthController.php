@@ -46,6 +46,7 @@ class AuthController extends Controller
 
         return response()
             ->json([
+                'token' => $token,
                 'token_type' => 'Bearer',
                 'user' => $user,
             ])
@@ -85,6 +86,7 @@ class AuthController extends Controller
 
         return response()
             ->json([
+                'token' => $token,
                 'token_type' => 'Bearer',
                 'user' => $user,
             ])
@@ -108,5 +110,51 @@ class AuthController extends Controller
         return response()->json([
             'message' => 'Sesión cerrada correctamente'
         ])->withoutCookie('sanctum_token');
+    }
+
+    public function forgotPassword(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email|exists:users,email'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $status = \Illuminate\Support\Facades\Password::broker()->sendResetLink(
+            $request->only('email')
+        );
+
+        return $status === \Illuminate\Support\Facades\Password::RESET_LINK_SENT
+            ? response()->json(['message' => __($status)])
+            : response()->json(['message' => __($status)], 400);
+    }
+
+    public function resetPassword(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email',
+            'password' => 'required|string|min:8|confirmed',
+            'token' => 'required'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $status = \Illuminate\Support\Facades\Password::broker()->reset(
+            $request->only('email', 'password', 'password_confirmation', 'token'),
+            function ($user, $password) {
+                $user->forceFill([
+                    'password' => Hash::make($password)
+                ])->setRememberToken(\Illuminate\Support\Str::random(60));
+                $user->save();
+            }
+        );
+
+        return $status === \Illuminate\Support\Facades\Password::PASSWORD_RESET
+            ? response()->json(['message' => __($status)])
+            : response()->json(['message' => __($status)], 400);
     }
 }

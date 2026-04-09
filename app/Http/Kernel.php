@@ -39,7 +39,8 @@ class Kernel extends HttpKernel
         ],
 
         'api' => [
-            \Illuminate\Routing\Middleware\ThrottleRequests::class.':60,1',  // ✅ 60 req/min por defecto
+            \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
+            \Illuminate\Routing\Middleware\ThrottleRequests::class.':60,1',
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
         ],
     ];
@@ -49,7 +50,7 @@ class Kernel extends HttpKernel
      *
      * 
      *
-     * @var array<string, class-string|string>
+     * @var array<string
      */
     protected $middlewareAliases = [
         'auth' => \App\Http\Middleware\Authenticate::class,
@@ -58,7 +59,7 @@ class Kernel extends HttpKernel
         'cache.headers' => \Illuminate\Http\Middleware\SetCacheHeaders::class,
         'can' => \Illuminate\Auth\Middleware\Authorize::class,
         'admin' => \App\Http\Middleware\IsAdmin::class,
-        'compress' => \App\Http\Middleware\CompressResponse::class,  // ✅ Gzip compression
+        'compress' => \App\Http\Middleware\CompressResponse::class, 
         'guest' => \App\Http\Middleware\RedirectIfAuthenticated::class,
         'password.confirm' => \Illuminate\Auth\Middleware\RequirePassword::class,
         'precognitive' => \Illuminate\Foundation\Http\Middleware\HandlePrecognitiveRequests::class,

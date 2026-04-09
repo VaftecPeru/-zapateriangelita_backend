@@ -9,11 +9,11 @@ use App\Http\Controllers\StatsController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
-// ✅ Rate limiting específico por tipo de endpoint
 Route::middleware('throttle:60,1')->post('/register', [AuthController::class, 'register']);  // 60/min
 Route::middleware('throttle:60,1')->post('/login', [AuthController::class, 'login']);        // 60/min
+Route::middleware('throttle:10,1')->post('/forgot-password', [AuthController::class, 'forgotPassword']);
+Route::middleware('throttle:10,1')->post('/reset-password', [AuthController::class, 'resetPassword']);
 
-// Rutas Públicas (Búsqueda y Catálogo) - Rate limit normal
 Route::middleware('throttle:100,1')->group(function () {
     Route::get('/properties', [PropertyController::class, 'index']);
     Route::get('/properties/{property}', [PropertyController::class, 'show']);
@@ -21,34 +21,44 @@ Route::middleware('throttle:100,1')->group(function () {
     Route::get('/services', [AdditionalServiceController::class, 'index']);
     Route::post('/leads', [LeadController::class, 'store']);
     Route::get('/settings', [SettingController::class, 'index']);
+
+    Route::get('/settings', [SettingController::class, 'index']);
 });
 
-// Rutas Privadas (Requieren Token + Admin)
-Route::middleware(['auth:sanctum', 'admin'])->group(function () {
-    // Gestión de Propiedades
-    Route::post('/properties', [PropertyController::class, 'store']);
-    Route::put('/properties/{property}', [PropertyController::class, 'update']);
-    Route::delete('/properties/{property}', [PropertyController::class, 'destroy']);
-    
-    // Gestión de Servicios
-    Route::post('/services', [AdditionalServiceController::class, 'store']);
-    Route::put('/services/{service}', [AdditionalServiceController::class, 'update']);
-    Route::delete('/services/{service}', [AdditionalServiceController::class, 'destroy']);
-    
-    // Gestión de Categorías
-
-    // Estadísticas y Ajustes
-    Route::get('/stats', [StatsController::class, 'index']);
-    Route::put('/settings/{key}', [SettingController::class, 'update']);
-
-    // Mensajes / Leads
-    Route::get('/leads', [LeadController::class, 'index']);
-    Route::put('/leads/{lead}', [LeadController::class, 'update']);
-    Route::delete('/leads/{lead}', [LeadController::class, 'destroy']);
-
-    // Usuario y Logout
+Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/user', function (Request $request) {
         return $request->user();
     });
+    Route::post('/user/update', function (Request $request) {
+        $user = $request->user();
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'birthdate' => 'nullable|date',
+            'gender' => 'nullable|string|max:50',
+            'department' => 'nullable|string|max:100',
+            'province' => 'nullable|string|max:100',
+            'district' => 'nullable|string|max:100',
+        ]);
+        $user->update($validated);
+        return response()->json($user);
+    });
     Route::post('/logout', [AuthController::class, 'logout']);
+    Route::get('/my-bookings', [LeadController::class, 'clientLeads']);
+
+    Route::middleware(['admin'])->group(function () {
+        Route::post('/properties', [PropertyController::class, 'store']);
+        Route::put('/properties/{property}', [PropertyController::class, 'update']);
+        Route::delete('/properties/{property}', [PropertyController::class, 'destroy']);
+        
+        Route::post('/services', [AdditionalServiceController::class, 'store']);
+        Route::put('/services/{service}', [AdditionalServiceController::class, 'update']);
+        Route::delete('/services/{service}', [AdditionalServiceController::class, 'destroy']);
+        
+        Route::get('/stats', [StatsController::class, 'index']);
+        Route::put('/settings/{key}', [SettingController::class, 'update']);
+
+        Route::get('/leads', [LeadController::class, 'index']);
+        Route::put('/leads/{lead}', [LeadController::class, 'update']);
+        Route::delete('/leads/{lead}', [LeadController::class, 'destroy']);
+    });
 });

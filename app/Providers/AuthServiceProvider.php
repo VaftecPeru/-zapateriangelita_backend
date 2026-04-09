@@ -18,6 +18,8 @@ class AuthServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        //
+        \Illuminate\Auth\Notifications\ResetPassword::createUrlUsing(function ($user, string $token) {
+            return env('FRONTEND_URL', 'http://localhost:5173') . '/reset-password?token=' . $token . '&email=' . urlencode($user->email);
+        });
     }
 }

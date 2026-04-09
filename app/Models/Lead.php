@@ -9,6 +9,15 @@ class Lead extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['type', 'item_id', 'first_name', 'last_name', 'phone', 'check_in', 'check_out', 'guests', 'property_title'];
+    protected $fillable = ['type', 'item_id', 'first_name', 'last_name', 'phone', 'check_in', 'check_out', 'guests', 'property_title', 'email', 'user_id', 'additional_services'];
+
+    protected $casts = [
+        'additional_services' => 'array',
+    ];
+
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
 }
 
