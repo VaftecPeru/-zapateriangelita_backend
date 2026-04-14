@@ -60,5 +60,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/leads', [LeadController::class, 'index']);
         Route::put('/leads/{lead}', [LeadController::class, 'update']);
         Route::delete('/leads/{lead}', [LeadController::class, 'destroy']);
+
+        Route::get('/users', [\App\Http\Controllers\UserController::class, 'index']);
     });
 });
