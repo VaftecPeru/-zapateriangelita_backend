@@ -30,7 +30,7 @@ class PropertyController extends Controller
         }
 
         if (!$image) {
-            // Fallback: Si no se puede procesar, guardar el original como JPG
+            // Fallback: guardar el original directamente
             $path = $file->store($subfolder, 'uploads');
             return asset('uploads/' . $path);
         }
@@ -44,20 +44,17 @@ class PropertyController extends Controller
             $newWidth = $maxWidth;
             $newHeight = ($height / $width) * $newWidth;
             $newImage = imagecreatetruecolor($newWidth, $newHeight);
-            
-            // Mantener transparencia si es PNG originalmente (opcional pero bueno)
             imagealphablending($newImage, false);
             imagesavealpha($newImage, true);
-            
             imagecopyresampled($newImage, $image, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
             imagedestroy($image);
             $image = $newImage;
         }
 
-        // 2. Guardar como WebP si es posible, si no JPG optimizado
+        // 2. Guardar como WebP o JPG
         $finalPath = $uploadPath . '/' . $filename;
         if (function_exists('imagewebp')) {
-            imagewebp($image, $finalPath, 80); // 80% calidad
+            imagewebp($image, $finalPath, 80);
         } else {
             $filename = str_replace('.webp', '.jpg', $filename);
             $finalPath = $uploadPath . '/' . $filename;
@@ -160,9 +157,10 @@ class PropertyController extends Controller
             'rating' => 'nullable|numeric',
             'reviews' => 'nullable|integer',
             'img' => 'nullable',
-            'img_file' => 'sometimes|nullable|file|image|mimes:jpeg,png,jpg|max:20480',
-            'new_images.*' => 'sometimes|nullable|file|image|mimes:jpeg,png,jpg|max:20480',
+            'img_file' => 'sometimes|nullable|file|image|mimes:jpeg,png,jpg,webp|max:20480',
+            'new_images.*' => 'sometimes|nullable|file|image|mimes:jpeg,png,jpg,webp|max:20480',
             'amenities' => 'nullable|string',
+            'description' => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
@@ -176,26 +174,63 @@ class PropertyController extends Controller
             $validated['discounted_price'] = null;
         }
 
-        $imageUrls = is_array($property->images) ? $property->images : [];
-        if ($request->hasFile('new_images')) {
-            $files = $request->file('new_images');
-            foreach ($files as $file) {
-                if (count($imageUrls) >= 5) break;
-                $imageUrls[] = $this->optimizeImage($file);
+        // Sincronización de Galería por Casillas (Preserva orden y reemplazos)
+        $imageSlots = $request->input('image_slots');
+        if (is_string($imageSlots)) {
+            $imageSlots = json_decode($imageSlots, true);
+        }
+
+        \Illuminate\Support\Facades\Log::info("Update Property #{$property->id} - image_slots recibidos:", ['slots' => $imageSlots]);
+
+        $finalImages = [];
+        $newFiles = $request->file('new_images') ?? [];
+        // Reindexar para asegurar acceso por índice numérico
+        $newFiles = array_values($newFiles);
+        $fileIndex = 0;
+
+        if (is_array($imageSlots) && count($imageSlots) > 0) {
+            foreach ($imageSlots as $i => $slot) {
+                if ($slot === '__NEW__') {
+                    if (isset($newFiles[$fileIndex])) {
+                        $url = $this->optimizeImage($newFiles[$fileIndex]);
+                        $finalImages[] = $url;
+                        \Illuminate\Support\Facades\Log::info("Slot {$i}: __NEW__ -> {$url}");
+                        $fileIndex++;
+                    } else {
+                        \Illuminate\Support\Facades\Log::warning("Slot {$i}: __NEW__ pero no hay archivo en fileIndex={$fileIndex}");
+                    }
+                } elseif ($slot && $slot !== '__EMPTY__' && $slot !== 'null' && is_string($slot)) {
+                    $finalImages[] = $slot;
+                    \Illuminate\Support\Facades\Log::info("Slot {$i}: URL existente -> {$slot}");
+                } else {
+                    \Illuminate\Support\Facades\Log::info("Slot {$i}: VACÍO (valor: {$slot})");
+                }
             }
-            $validated['images'] = $imageUrls;
+        } else {
+            // Fallback: sin slots, usar imágenes actuales de la propiedad
+            $currentImages = is_array($property->images) ? $property->images : [];
+            $finalImages = $currentImages;
+            if (count($newFiles) > 0) {
+                foreach ($newFiles as $file) {
+                    if (count($finalImages) >= 5) break;
+                    $finalImages[] = $this->optimizeImage($file);
+                }
+            }
         }
 
-        if ($request->hasFile('img_file')) {
-            $validated['img'] = $this->optimizeImage($request->file('img_file'));
-        } elseif (empty($property->img) && count($imageUrls) > 0) {
-            $validated['img'] = $imageUrls[0];
+        \Illuminate\Support\Facades\Log::info("Final images array:", ['images' => $finalImages]);
+
+        $validated['images'] = $finalImages;
+
+        // Sincronización de Portada (Casilla 1 = img)
+        if (count($finalImages) > 0) {
+            $validated['img'] = $finalImages[0];
+        } else {
+            $validated['img'] = null;
         }
 
-        if ($request->hasFile('img_file')) {
-            $path = $request->file('img_file')->store('properties', 'uploads');
-            $validated['img'] = asset('uploads/' . $path);
-        }
+        // Eliminar img_file de validated ya que se procesó arriba
+        unset($validated['img_file']);
 
         try {
             // ✅ Sanitizar strings HTML
@@ -204,9 +239,11 @@ class PropertyController extends Controller
             }
             
             $property->update($validated);
+            $property->refresh(); // Re-leer desde la base de datos para devolver datos frescos
             return response()->json($property);
         } catch (\Exception $e) {
-            return response()->json(['error' => 'Error al actualizar la propiedad'], 500);
+            \Illuminate\Support\Facades\Log::error("Error al actualizar propiedad #{$property->id}: " . $e->getMessage());
+            return response()->json(['error' => 'Error al actualizar la propiedad: ' . $e->getMessage()], 500);
         }
     }
 

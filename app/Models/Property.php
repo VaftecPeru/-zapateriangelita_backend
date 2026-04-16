@@ -33,7 +33,6 @@ class Property extends Model
         'baths' => 'integer',
         'rating' => 'float',
         'reviews' => 'integer',
-        'images' => 'array',
     ];
 
     /**
@@ -64,6 +63,12 @@ class Property extends Model
                     }
                     return $img;
                 }, $images);
+            },
+            set: function ($value) {
+                if (is_array($value)) {
+                    return json_encode($value);
+                }
+                return $value;
             }
         );
     }

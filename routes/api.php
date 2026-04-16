@@ -6,6 +6,7 @@ use App\Http\Controllers\SettingController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\AdditionalServiceController;
 use App\Http\Controllers\StatsController;
+use App\Http\Controllers\UserController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -48,6 +49,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::middleware(['admin'])->group(function () {
         Route::post('/properties', [PropertyController::class, 'store']);
         Route::put('/properties/{property}', [PropertyController::class, 'update']);
+        Route::post('/properties/{property}', [PropertyController::class, 'update']); // FormData con archivos
         Route::delete('/properties/{property}', [PropertyController::class, 'destroy']);
         
         Route::post('/services', [AdditionalServiceController::class, 'store']);
@@ -61,6 +63,6 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/leads/{lead}', [LeadController::class, 'update']);
         Route::delete('/leads/{lead}', [LeadController::class, 'destroy']);
 
-        Route::get('/users', [\App\Http\Controllers\UserController::class, 'index']);
+        Route::get('/users', [UserController::class, 'index']);
     });
 });
