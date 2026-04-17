@@ -98,7 +98,8 @@ class StatsController extends Controller
 
             // Consolidar listas completas para el Dashboard
             $allUsers = \App\Models\User::orderBy('created_at', 'desc')->get();
-            $allLeads = DB::table('leads')->orderBy('created_at', 'desc')->get();
+            // $allLeads = DB::table('leads')->orderBy('created_at', 'desc')->get();
+            $allLeads = Lead::orderBy('created_at', 'desc')->get();
             
             return response()->json([
                 'all_users' => $allUsers,

@@ -22,6 +22,7 @@ class LeadController extends Controller
                 'check_out'      => 'nullable|date',
                 'guests'         => 'nullable|integer',
                 'property_title' => 'nullable|string|max:255',
+                'property_id'    => 'nullable|integer',
                 'additional_services' => 'nullable|array',
             ]);
 
@@ -95,7 +96,7 @@ class LeadController extends Controller
 
     public function index(): JsonResponse
     {
-        $leads = Lead::orderBy('created_at', 'desc')->get();
+        $leads = Lead::with('property')->orderBy('created_at', 'desc')->get();
         return response()->json($leads);
     }
 
