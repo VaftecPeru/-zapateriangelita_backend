@@ -7,6 +7,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Mail;
+use App\Mail\WelcomeUserMail;
 
 class AuthController extends Controller
 {
@@ -41,6 +43,12 @@ class AuthController extends Controller
             'district' => $request->district,
             'role' => 'user',
         ]);
+
+        try {
+            Mail::to($user->email)->send(new WelcomeUserMail($user, $request->password));
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Error sending welcome email to ' . $user->email . ': ' . $e->getMessage());
+        }
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
