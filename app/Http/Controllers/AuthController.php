@@ -17,7 +17,7 @@ class AuthController extends Controller
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'email' => 'required|string|email:rfc,dns|max:255|unique:users|regex:/^[^@]+@[^@]+\.[^@]{2,}$/',
-            'password' => 'required|string|min:12|regex:/[A-Z]/|regex:/[0-9]/|confirmed',
+            'password' => 'required|string|min:6|regex:/[A-Z]/|regex:/[0-9]/|confirmed',
             'gender' => 'required|string',
             'birthdate' => 'required|date|before_or_equal:' . now()->subYears(18)->format('Y-m-d'),
             'department' => 'required|string',
@@ -143,7 +143,7 @@ class AuthController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'email' => 'required|email',
-            'password' => 'required|string|min:8|confirmed',
+            'password' => 'required|string|min:6|confirmed',
             'token' => 'required'
         ]);
 
