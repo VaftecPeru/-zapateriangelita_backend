@@ -19,6 +19,12 @@ class UserController extends Controller
         return response()->json($users);
     }
 
+    public function show(string $id): JsonResponse
+    {
+        $user = User::find($id);
+        return response()->json($user);
+    }
+
     /**
      * Remove the specified resource from storage.
      *

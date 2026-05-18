@@ -9,6 +9,7 @@ use App\Http\Controllers\StatsController;
 use App\Http\Controllers\UserController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Mail;
 
 Route::middleware('throttle:60,1')->post('/register', [AuthController::class, 'register']);  // 60/min
 Route::middleware('throttle:60,1')->post('/login', [AuthController::class, 'login']);        // 60/min
@@ -39,6 +40,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
             'department' => 'nullable|string|max:100',
             'province' => 'nullable|string|max:100',
             'district' => 'nullable|string|max:100',
+            'phone' => 'nullable|string|max:50',
         ]);
         $user->update($validated);
         return response()->json($user);
@@ -64,6 +66,16 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::delete('/leads/{lead}', [LeadController::class, 'destroy']);
 
         Route::get('/users', [UserController::class, 'index']);
+        Route::get('/users/{id}', [UserController::class, 'show']);
         Route::delete('/users/{user}', [UserController::class, 'destroy']);
     });
+});
+
+Route::get('/test-mail', function () {
+    Mail::raw('Correo enviado desde Laravel', function ($message) {
+        // $message->to('TU_CORREO@gmail.com')
+        $message->to('josemiguelsagitario@gmail.com')
+            ->subject('Prueba Laravel');
+    });
+    return 'Correo enviado';
 });
