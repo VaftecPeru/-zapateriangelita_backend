@@ -8,10 +8,12 @@ return [
     'allowed_methods' => ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
 
     'allowed_origins' => [
-        env('FRONTEND_URL', 'https://umbralsuites.com'), 
-        'https://umbralsuites.com',
+        env('FRONTEND_URL', 'https://zapateriangelita.com'),
+        'https://zapateriangelita.com',
+        'https://www.zapateriangelita.com',
+        'https://api.zapateriangelita.com',
         'http://localhost:5173',
-        'http://localhost:3000'
+        'http://localhost:3000',
     ],
 
     'allowed_origins_patterns' => [],

@@ -9,9 +9,9 @@ return [
     'env' => env('APP_ENV', 'production'),
 
     'debug' => (bool) env('APP_DEBUG', false),
-'log_level' => env('LOG_LEVEL', 'error'),  // ✅ Consistente con .env
+    'log_level' => env('LOG_LEVEL', 'error'),
 
-    'url' => env('APP_URL', 'https://umbralsuites.com'),
+    'url' => env('APP_URL', 'https://api.zapateriangelita.com'),
 
     'asset_url' => env('ASSET_URL', null),
 
@@ -29,22 +29,22 @@ return [
 
     'maintenance' => [
         'driver' => 'file',
-        
+
     ],
 
 
     'providers' => ServiceProvider::defaultProviders()->merge([
-        
+
         App\Providers\AppServiceProvider::class,
         App\Providers\AuthServiceProvider::class,
         App\Providers\EventServiceProvider::class,
         App\Providers\RouteServiceProvider::class,
     ])->toArray(),
 
-    
+
 
     'aliases' => Facade::defaultAliases()->merge([
-        
+
     ])->toArray(),
 
 ];

@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -18,30 +17,21 @@ class User extends Authenticatable
         'password',
         'gender',
         'birthdate',
-        'department',
-        'province',
-        'district',
+        'state',        // ✅ CORRECTO
+        'municipality', // ✅ CORRECTO
+        'city',         // ✅ CORRECTO
         'role',
         'phone',
     ];
 
-    /**
-     * 
-     *
-     * @var array<int, string>
-     */
     protected $hidden = [
         'password',
         'remember_token',
     ];
 
-    /**
-     * 
-     *
-     * @var array<string, string>
-     */
     protected $casts = [
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
+        'birthdate' => 'date',
     ];
 }

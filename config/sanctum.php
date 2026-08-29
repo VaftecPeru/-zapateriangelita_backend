@@ -7,7 +7,7 @@ return [
 
     'stateful' => explode(',', env('SANCTUM_STATEFUL_DOMAINS', sprintf(
         '%s%s',
-        'umbralsuites.com',
+        'zapateriangelita.com,api.zapateriangelita.com',
         Sanctum::currentApplicationUrlWithPort()
     ))),
 

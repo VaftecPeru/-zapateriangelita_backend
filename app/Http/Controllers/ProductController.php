@@ -2,20 +2,23 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Property;
+use App\Models\Product;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 
-class PropertyController extends Controller
+class ProductController extends Controller
 {
-    private function optimizeImage($file, $subfolder = 'properties')
+    // ============================================
+    // OPTIMIZAR IMAGEN
+    // ============================================
+    private function optimizeImage($file, $subfolder = 'products')
     {
         $mime = $file->getMimeType();
         $sourcePath = $file->getPathname();
-        $filename = uniqid('prop_') . '.webp';
+        $filename = uniqid('prod_') . '.webp';
         $uploadPath = public_path('uploads/' . $subfolder);
-        
+
         if (!file_exists($uploadPath)) {
             mkdir($uploadPath, 0755, true);
         }
@@ -30,15 +33,14 @@ class PropertyController extends Controller
         }
 
         if (!$image) {
-            // Fallback: guardar el original directamente
             $path = $file->store($subfolder, 'uploads');
             return asset('uploads/' . $path);
         }
 
-        // 1. Redimensionar si es muy grande (máx 1600px)
+        // Redimensionar si es muy grande (máx 1200px)
         $width = imagesx($image);
         $height = imagesy($image);
-        $maxWidth = 1600;
+        $maxWidth = 1200;
 
         if ($width > $maxWidth) {
             $newWidth = $maxWidth;
@@ -51,7 +53,7 @@ class PropertyController extends Controller
             $image = $newImage;
         }
 
-        // 2. Guardar como WebP o JPG
+        // Guardar como WebP o JPG
         $finalPath = $uploadPath . '/' . $filename;
         if (function_exists('imagewebp')) {
             imagewebp($image, $finalPath, 80);
@@ -65,34 +67,47 @@ class PropertyController extends Controller
         return asset('uploads/' . $subfolder . '/' . $filename);
     }
 
+    // ============================================
+    // LISTAR PRODUCTOS
+    // ============================================
     public function index(): JsonResponse
     {
-        return response()->json(Property::paginate(20));  // ✅ Paginación: 20 por página
+        return response()->json(Product::paginate(20));
     }
 
+    // ============================================
+    // CREAR PRODUCTO
+    // ============================================
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'type' => 'required|string|max:100',
-            'status' => 'required|string|max:100',
-            'title' => 'required|string|max:255',
-            'location' => 'required|string|max:255',
-            'beds' => 'nullable|integer|min:0',
-            'baths' => 'nullable|integer|min:0',
-            'area' => 'nullable|string|max:50',
+            'name' => 'required|string|max:255',
+            'category' => 'required|string|max:100',
+            'brand' => 'required|string|max:100',
             'price' => 'required|numeric|min:0.01',
             'discounted_price' => 'nullable|numeric|min:0',
+            'stock' => 'required|integer|min:0',
+            'size' => 'nullable|string|max:50',
+            'color' => 'nullable|string|max:50',
+            'material' => 'nullable|string|max:100',
+            'gender' => 'nullable|string|max:50',
             'rating' => 'required|numeric|min:0|max:5',
             'reviews' => 'required|integer|min:0',
-            'img' => 'nullable', 
-            'img_file' => 'nullable|file|image|mimes:jpeg,png,jpg,gif,webp|max:20480', 
+            'img' => 'nullable',
+            'img_file' => 'nullable|file|image|mimes:jpeg,png,jpg,gif,webp|max:20480',
             'new_images.*' => 'nullable|file|image|mimes:jpeg,png,jpg,gif,webp|max:20480',
-            'amenities' => 'nullable|string|max:1000',
+            'description' => 'nullable|string|max:5000',
+            'discount' => 'nullable|string|max:50',
         ]);
 
         // Limpiar discounted_price si está vacío
         if (empty($validated['discounted_price'])) {
             $validated['discounted_price'] = null;
+        }
+
+        // Limpiar discount si está vacío
+        if (empty($validated['discount'])) {
+            $validated['discount'] = null;
         }
 
         $imageUrls = [];
@@ -111,56 +126,52 @@ class PropertyController extends Controller
         }
 
         try {
-            // ✅ Sanitizar strings HTML
-            if (isset($validated['amenities'])) {
-                $validated['amenities'] = htmlspecialchars($validated['amenities'], ENT_QUOTES, 'UTF-8');
+            // Sanitizar strings HTML
+            $fields = ['name', 'category', 'brand', 'size', 'color', 'material', 'gender', 'description', 'discount'];
+            foreach ($fields as $field) {
+                if (isset($validated[$field])) {
+                    $validated[$field] = htmlspecialchars($validated[$field], ENT_QUOTES, 'UTF-8');
+                }
             }
-            if (isset($validated['title'])) {
-                $validated['title'] = htmlspecialchars($validated['title'], ENT_QUOTES, 'UTF-8');
-            }
-            if (isset($validated['description'])) {
-                $validated['description'] = htmlspecialchars($validated['description'], ENT_QUOTES, 'UTF-8');
-            }
-            
-            $property = Property::create($validated);
-            return response()->json($property, 201);
+
+            $product = Product::create($validated);
+            return response()->json($product, 201);
         } catch (\Exception $e) {
-            return response()->json(['error' => 'Error al crear la propiedad'], 500);
+            return response()->json(['error' => 'Error al crear el producto: ' . $e->getMessage()], 500);
         }
     }
 
-    public function show(Property $property): JsonResponse
+    // ============================================
+    // MOSTRAR PRODUCTO
+    // ============================================
+    public function show(Product $product): JsonResponse
     {
-        return response()->json($property->load(['rooms']));
+        return response()->json($product);
     }
 
-    public function trackView(Property $property): JsonResponse
-    {
-        DB::transaction(function () use ($property) {
-            $property->lockForUpdate()->increment('views');
-        });
-        return response()->json(['success' => true]);
-    }
-
-    public function update(Request $request, Property $property): JsonResponse
+    // ============================================
+    // ACTUALIZAR PRODUCTO
+    // ============================================
+    public function update(Request $request, Product $product): JsonResponse
     {
         $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
-            'type' => 'nullable|string',
-            'status' => 'nullable|string',
-            'title' => 'nullable|string',
-            'location' => 'nullable|string',
-            'beds' => 'nullable|integer',
-            'baths' => 'nullable|integer',
-            'area' => 'nullable|string',
-            'price' => 'nullable|numeric',
-            'discounted_price' => 'nullable|numeric',
-            'rating' => 'nullable|numeric',
-            'reviews' => 'nullable|integer',
+            'name' => 'nullable|string|max:255',
+            'category' => 'nullable|string|max:100',
+            'brand' => 'nullable|string|max:100',
+            'price' => 'nullable|numeric|min:0.01',
+            'discounted_price' => 'nullable|numeric|min:0',
+            'stock' => 'nullable|integer|min:0',
+            'size' => 'nullable|string|max:50',
+            'color' => 'nullable|string|max:50',
+            'material' => 'nullable|string|max:100',
+            'gender' => 'nullable|string|max:50',
+            'rating' => 'nullable|numeric|min:0|max:5',
+            'reviews' => 'nullable|integer|min:0',
             'img' => 'nullable',
             'img_file' => 'sometimes|nullable|file|image|mimes:jpeg,png,jpg,webp|max:20480',
             'new_images.*' => 'sometimes|nullable|file|image|mimes:jpeg,png,jpg,webp|max:20480',
-            'amenities' => 'nullable|string',
-            'description' => 'nullable|string',
+            'description' => 'nullable|string|max:5000',
+            'discount' => 'nullable|string|max:50',
         ]);
 
         if ($validator->fails()) {
@@ -168,23 +179,23 @@ class PropertyController extends Controller
         }
 
         $validated = $validator->validated();
-        
-        // Limpiar valores vacíos/nulos de discounted_price
+
+        // Limpiar valores vacíos
         if (!isset($validated['discounted_price']) || $validated['discounted_price'] === null || $validated['discounted_price'] == 0) {
             $validated['discounted_price'] = null;
         }
+        if (!isset($validated['discount']) || empty($validated['discount'])) {
+            $validated['discount'] = null;
+        }
 
-        // Sincronización de Galería por Casillas (Preserva orden y reemplazos)
+        // Sincronización de Galería
         $imageSlots = $request->input('image_slots');
         if (is_string($imageSlots)) {
             $imageSlots = json_decode($imageSlots, true);
         }
 
-        \Illuminate\Support\Facades\Log::info("Update Property #{$property->id} - image_slots recibidos:", ['slots' => $imageSlots]);
-
         $finalImages = [];
         $newFiles = $request->file('new_images') ?? [];
-        // Reindexar para asegurar acceso por índice numérico
         $newFiles = array_values($newFiles);
         $fileIndex = 0;
 
@@ -194,62 +205,58 @@ class PropertyController extends Controller
                     if (isset($newFiles[$fileIndex])) {
                         $url = $this->optimizeImage($newFiles[$fileIndex]);
                         $finalImages[] = $url;
-                        \Illuminate\Support\Facades\Log::info("Slot {$i}: __NEW__ -> {$url}");
                         $fileIndex++;
-                    } else {
-                        \Illuminate\Support\Facades\Log::warning("Slot {$i}: __NEW__ pero no hay archivo en fileIndex={$fileIndex}");
                     }
                 } elseif ($slot && $slot !== '__EMPTY__' && $slot !== 'null' && is_string($slot)) {
                     $finalImages[] = $slot;
-                    \Illuminate\Support\Facades\Log::info("Slot {$i}: URL existente -> {$slot}");
-                } else {
-                    \Illuminate\Support\Facades\Log::info("Slot {$i}: VACÍO (valor: {$slot})");
                 }
             }
         } else {
-            // Fallback: sin slots, usar imágenes actuales de la propiedad
-            $currentImages = is_array($property->images) ? $property->images : [];
+            $currentImages = is_array($product->images) ? $product->images : [];
             $finalImages = $currentImages;
             if (count($newFiles) > 0) {
                 foreach ($newFiles as $file) {
-                    if (count($finalImages) >= 5) break;
+                    if (count($finalImages) >= 5)
+                        break;
                     $finalImages[] = $this->optimizeImage($file);
                 }
             }
         }
 
-        \Illuminate\Support\Facades\Log::info("Final images array:", ['images' => $finalImages]);
-
         $validated['images'] = $finalImages;
 
-        // Sincronización de Portada (Casilla 1 = img)
+        // Portada (primera imagen)
         if (count($finalImages) > 0) {
             $validated['img'] = $finalImages[0];
         } else {
             $validated['img'] = null;
         }
 
-        // Eliminar img_file de validated ya que se procesó arriba
         unset($validated['img_file']);
 
         try {
-            // ✅ Sanitizar strings HTML
-            if (isset($validated['amenities'])) {
-                $validated['amenities'] = htmlspecialchars($validated['amenities'], ENT_QUOTES, 'UTF-8');
+            // Sanitizar strings HTML
+            $fields = ['name', 'category', 'brand', 'size', 'color', 'material', 'gender', 'description', 'discount'];
+            foreach ($fields as $field) {
+                if (isset($validated[$field])) {
+                    $validated[$field] = htmlspecialchars($validated[$field], ENT_QUOTES, 'UTF-8');
+                }
             }
-            
-            $property->update($validated);
-            $property->refresh(); // Re-leer desde la base de datos para devolver datos frescos
-            return response()->json($property);
+
+            $product->update($validated);
+            $product->refresh();
+            return response()->json($product);
         } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error("Error al actualizar propiedad #{$property->id}: " . $e->getMessage());
-            return response()->json(['error' => 'Error al actualizar la propiedad: ' . $e->getMessage()], 500);
+            return response()->json(['error' => 'Error al actualizar el producto: ' . $e->getMessage()], 500);
         }
     }
 
-    public function destroy(Property $property): JsonResponse
+    // ============================================
+    // ELIMINAR PRODUCTO
+    // ============================================
+    public function destroy(Product $product): JsonResponse
     {
-        $property->delete();
+        $product->delete();
         return response()->json(null, 204);
     }
 }

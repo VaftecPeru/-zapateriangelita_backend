@@ -31,7 +31,7 @@ class WelcomeUserMail extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: '¡Bienvenido a Umbral Suites!',
+            subject: '¡Bienvenido a Zapateriangelita!',
         );
     }
 
