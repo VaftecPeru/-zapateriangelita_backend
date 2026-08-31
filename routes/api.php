@@ -7,6 +7,8 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\AdditionalServiceController;
 use App\Http\Controllers\StatsController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\CategoryController;
+use App\Http\Controllers\SubcategoryController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Mail;
@@ -18,6 +20,9 @@ Route::middleware('throttle:60,1')->post('/login', [AuthController::class, 'logi
 Route::middleware('throttle:10,1')->post('/forgot-password', [AuthController::class, 'forgotPassword']);
 Route::middleware('throttle:10,1')->post('/reset-password', [AuthController::class, 'resetPassword']);
 
+Route::get('/login', function () {
+    return response()->json(['message' => 'Unauthenticated.'], 401);
+})->name('login');
 
 
 Route::middleware('throttle:100,1')->group(function () {
@@ -29,6 +34,9 @@ Route::middleware('throttle:100,1')->group(function () {
     Route::post('/leads', [LeadController::class, 'store']);
 
     Route::get('/settings', [SettingController::class, 'index']);
+
+    Route::get('/public/categories', [CategoryController::class, 'publicIndex']);
+    Route::get('/public/subcategories', [SubcategoryController::class, 'publicIndex']);
 });
 
 Route::middleware(['auth:sanctum'])->group(function () {
@@ -58,6 +66,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
 
 
+    // Categorías y subcategorías (lectura para usuarios autenticados)
+    Route::get('/categories', [CategoryController::class, 'index']);
+    Route::get('/categories/{category}', [CategoryController::class, 'show']);
+    Route::get('/subcategories', [SubcategoryController::class, 'index']);
+    Route::get('/subcategories/{subcategory}', [SubcategoryController::class, 'show']);
+
     Route::middleware(['admin'])->group(function () {
 
         Route::post('/products', [ProductController::class, 'store']);
@@ -68,6 +82,16 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/services', [AdditionalServiceController::class, 'store']);
         Route::put('/services/{service}', [AdditionalServiceController::class, 'update']);
         Route::delete('/services/{service}', [AdditionalServiceController::class, 'destroy']);
+
+        // Categorías CRUD (admin)
+        Route::post('/categories', [CategoryController::class, 'store']);
+        Route::put('/categories/{category}', [CategoryController::class, 'update']);
+        Route::delete('/categories/{category}', [CategoryController::class, 'destroy']);
+
+        // Subcategorías CRUD (admin)
+        Route::post('/subcategories', [SubcategoryController::class, 'store']);
+        Route::put('/subcategories/{subcategory}', [SubcategoryController::class, 'update']);
+        Route::delete('/subcategories/{subcategory}', [SubcategoryController::class, 'destroy']);
 
         Route::get('/stats', [StatsController::class, 'index']);
 

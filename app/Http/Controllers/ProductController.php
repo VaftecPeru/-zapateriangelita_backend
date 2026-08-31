@@ -9,9 +9,7 @@ use Illuminate\Support\Facades\DB;
 
 class ProductController extends Controller
 {
-    // ============================================
-    // OPTIMIZAR IMAGEN
-    // ============================================
+
     private function optimizeImage($file, $subfolder = 'products')
     {
         $mime = $file->getMimeType();
@@ -37,7 +35,6 @@ class ProductController extends Controller
             return asset('uploads/' . $path);
         }
 
-        // Redimensionar si es muy grande (máx 1200px)
         $width = imagesx($image);
         $height = imagesy($image);
         $maxWidth = 1200;
@@ -53,7 +50,6 @@ class ProductController extends Controller
             $image = $newImage;
         }
 
-        // Guardar como WebP o JPG
         $finalPath = $uploadPath . '/' . $filename;
         if (function_exists('imagewebp')) {
             imagewebp($image, $finalPath, 80);
@@ -67,22 +63,18 @@ class ProductController extends Controller
         return asset('uploads/' . $subfolder . '/' . $filename);
     }
 
-    // ============================================
-    // LISTAR PRODUCTOS
-    // ============================================
+
     public function index(): JsonResponse
     {
         return response()->json(Product::paginate(20));
     }
 
-    // ============================================
-    // CREAR PRODUCTO
-    // ============================================
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'category' => 'required|string|max:100',
+            'category_id' => 'nullable|integer|exists:categories,id',
             'brand' => 'required|string|max:100',
             'price' => 'required|numeric|min:0.01',
             'discounted_price' => 'nullable|numeric|min:0',
@@ -100,12 +92,10 @@ class ProductController extends Controller
             'discount' => 'nullable|string|max:50',
         ]);
 
-        // Limpiar discounted_price si está vacío
         if (empty($validated['discounted_price'])) {
             $validated['discounted_price'] = null;
         }
 
-        // Limpiar discount si está vacío
         if (empty($validated['discount'])) {
             $validated['discount'] = null;
         }
@@ -126,7 +116,6 @@ class ProductController extends Controller
         }
 
         try {
-            // Sanitizar strings HTML
             $fields = ['name', 'category', 'brand', 'size', 'color', 'material', 'gender', 'description', 'discount'];
             foreach ($fields as $field) {
                 if (isset($validated[$field])) {
@@ -141,22 +130,19 @@ class ProductController extends Controller
         }
     }
 
-    // ============================================
-    // MOSTRAR PRODUCTO
-    // ============================================
+
     public function show(Product $product): JsonResponse
     {
         return response()->json($product);
     }
 
-    // ============================================
-    // ACTUALIZAR PRODUCTO
-    // ============================================
+
     public function update(Request $request, Product $product): JsonResponse
     {
         $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
             'name' => 'nullable|string|max:255',
             'category' => 'nullable|string|max:100',
+            'category_id' => 'nullable|integer|exists:categories,id',
             'brand' => 'nullable|string|max:100',
             'price' => 'nullable|numeric|min:0.01',
             'discounted_price' => 'nullable|numeric|min:0',
@@ -180,7 +166,6 @@ class ProductController extends Controller
 
         $validated = $validator->validated();
 
-        // Limpiar valores vacíos
         if (!isset($validated['discounted_price']) || $validated['discounted_price'] === null || $validated['discounted_price'] == 0) {
             $validated['discounted_price'] = null;
         }
@@ -188,7 +173,6 @@ class ProductController extends Controller
             $validated['discount'] = null;
         }
 
-        // Sincronización de Galería
         $imageSlots = $request->input('image_slots');
         if (is_string($imageSlots)) {
             $imageSlots = json_decode($imageSlots, true);
@@ -225,7 +209,6 @@ class ProductController extends Controller
 
         $validated['images'] = $finalImages;
 
-        // Portada (primera imagen)
         if (count($finalImages) > 0) {
             $validated['img'] = $finalImages[0];
         } else {
@@ -235,7 +218,6 @@ class ProductController extends Controller
         unset($validated['img_file']);
 
         try {
-            // Sanitizar strings HTML
             $fields = ['name', 'category', 'brand', 'size', 'color', 'material', 'gender', 'description', 'discount'];
             foreach ($fields as $field) {
                 if (isset($validated[$field])) {
@@ -251,9 +233,6 @@ class ProductController extends Controller
         }
     }
 
-    // ============================================
-    // ELIMINAR PRODUCTO
-    // ============================================
     public function destroy(Product $product): JsonResponse
     {
         $product->delete();

@@ -28,7 +28,7 @@ class Product extends Model
         'images',
         'description',
         'discount',
-
+        'category_id',  // ✅ Agregar clave foránea
     ];
 
     protected $casts = [
@@ -39,4 +39,94 @@ class Product extends Model
         'reviews' => 'integer',
         'images' => 'array',
     ];
+
+    // ============================================
+    // RELACIONES
+    // ============================================
+
+    /**
+     * Relación con la categoría (Category)
+     */
+    public function category()
+    {
+        return $this->belongsTo(Category::class);
+    }
+
+    // ============================================
+    // SCOPES
+    // ============================================
+
+    /**
+     * Filtrar productos por categoría
+     */
+    public function scopeByCategory($query, $categoryId)
+    {
+        return $query->where('category_id', $categoryId);
+    }
+
+    /**
+     * Filtrar productos en stock
+     */
+    public function scopeInStock($query)
+    {
+        return $query->where('stock', '>', 0);
+    }
+
+    /**
+     * Filtrar productos en oferta
+     */
+    public function scopeOnSale($query)
+    {
+        return $query->whereNotNull('discounted_price')->where('discounted_price', '>', 0);
+    }
+
+    /**
+     * Filtrar productos por género
+     */
+    public function scopeByGender($query, $gender)
+    {
+        return $query->where('gender', $gender);
+    }
+
+    // ============================================
+    // MÉTODOS HELPER
+    // ============================================
+
+    /**
+     * Verificar si el producto está en oferta
+     */
+    public function isOnSale(): bool
+    {
+        return $this->discounted_price !== null && $this->discounted_price > 0;
+    }
+
+    /**
+     * Calcular porcentaje de descuento
+     */
+    public function getDiscountPercentage(): ?float
+    {
+        if (!$this->isOnSale() || $this->price <= 0) {
+            return null;
+        }
+        return round((($this->price - $this->discounted_price) / $this->price) * 100, 0);
+    }
+
+    /**
+     * Obtener precio formateado
+     */
+    public function getFormattedPrice(): string
+    {
+        return 'S/ ' . number_format($this->price, 2);
+    }
+
+    /**
+     * Obtener precio con descuento formateado
+     */
+    public function getFormattedDiscountedPrice(): ?string
+    {
+        if (!$this->isOnSale()) {
+            return null;
+        }
+        return 'S/ ' . number_format($this->discounted_price, 2);
+    }
 }
