@@ -15,6 +15,7 @@ class Product extends Model
         'name',
         'category',
         'brand',
+        'brand_id',      // ✅ Marca normalizada (FK a brands)
         'price',
         'discounted_price',
         'stock',
@@ -52,6 +53,46 @@ class Product extends Model
         return $this->belongsTo(Category::class);
     }
 
+    /**
+     * Relación con la marca (Brand)
+     */
+    public function brand()
+    {
+        return $this->belongsTo(Brand::class);
+    }
+
+    /**
+     * Tallas y stock por talla
+     */
+    public function sizes()
+    {
+        return $this->hasMany(ProductSize::class);
+    }
+
+    /**
+     * Colores disponibles
+     */
+    public function colors()
+    {
+        return $this->hasMany(ProductColor::class);
+    }
+
+    /**
+     * Reseñas del producto
+     */
+    public function reviews()
+    {
+        return $this->hasMany(Review::class);
+    }
+
+    /**
+     * Favoritos (usuarios que lo marcaron)
+     */
+    public function favorites()
+    {
+        return $this->hasMany(Favorite::class);
+    }
+
     // ============================================
     // SCOPES
     // ============================================
@@ -62,6 +103,24 @@ class Product extends Model
     public function scopeByCategory($query, $categoryId)
     {
         return $query->where('category_id', $categoryId);
+    }
+
+    /**
+     * Filtrar productos por marca
+     */
+    public function scopeByBrand($query, $brandId)
+    {
+        return $query->where('brand_id', $brandId);
+    }
+
+    /**
+     * Filtrar productos por talla (a través de product_sizes)
+     */
+    public function scopeBySize($query, $size)
+    {
+        return $query->whereHas('sizes', function ($q) use ($size) {
+            $q->where('size', $size)->where('stock', '>', 0);
+        });
     }
 
     /**

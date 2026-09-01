@@ -17,9 +17,9 @@ class User extends Authenticatable
         'password',
         'gender',
         'birthdate',
-        'state',        // ✅ CORRECTO
-        'municipality', // ✅ CORRECTO
-        'city',         // ✅ CORRECTO
+        'state',        
+        'municipality', 
+        'city',         
         'role',
         'phone',
     ];
@@ -34,4 +34,28 @@ class User extends Authenticatable
         'password' => 'hashed',
         'birthdate' => 'date',
     ];
+
+    // ============================================
+    // RELACIONES
+    // ============================================
+
+    public function orders()
+    {
+        return $this->hasMany(Order::class);
+    }
+
+    public function addresses()
+    {
+        return $this->hasMany(Address::class);
+    }
+
+    public function favorites()
+    {
+        return $this->hasMany(Favorite::class);
+    }
+
+    public function reviews()
+    {
+        return $this->hasMany(Review::class);
+    }
 }
