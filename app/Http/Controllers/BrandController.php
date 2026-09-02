@@ -8,103 +8,49 @@ use Illuminate\Http\JsonResponse;
 
 class BrandController extends Controller
 {
-    /**
-     * Listar marcas (admin)
-     * GET /api/brands
-     */
-    public function index(Request $request): JsonResponse
+    public function index(): JsonResponse
     {
-        $query = Brand::withCount('products')->ordered();
-
-        return response()->json($query->get());
+        return response()->json(Brand::orderBy('name')->get());
     }
 
-    /**
-     * Listar marcas públicas (solo activas, para el storefront)
-     * GET /api/public/brands
-     */
-    public function publicIndex(): JsonResponse
-    {
-        $brands = Brand::active()
-            ->withCount('products')
-            ->ordered()
-            ->get();
-
-        return response()->json($brands);
-    }
-
-    /**
-     * Mostrar una marca
-     * GET /api/brands/{brand}
-     */
     public function show(Brand $brand): JsonResponse
     {
-        $brand->loadCount('products');
         return response()->json($brand);
     }
 
-    /**
-     * Crear una marca
-     * POST /api/brands
-     */
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
+            'name' => 'required|string|max:255|unique:brands,name',
+            'slug' => 'nullable|string|max:255|unique:brands,slug',
             'is_active' => 'nullable|boolean',
         ]);
 
-        try {
-            $brand = Brand::create($validated);
-            return response()->json($brand, 201);
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Error al crear la marca: ' . $e->getMessage()
-            ], 500);
-        }
+        $brand = Brand::create($validated);
+        return response()->json($brand, 201);
     }
 
-    /**
-     * Actualizar una marca
-     * PUT /api/brands/{brand}
-     */
     public function update(Request $request, Brand $brand): JsonResponse
     {
         $validated = $request->validate([
-            'name' => 'nullable|string|max:255',
+            'name' => 'nullable|string|max:255|unique:brands,name,' . $brand->id,
+            'slug' => 'nullable|string|max:255|unique:brands,slug,' . $brand->id,
             'is_active' => 'nullable|boolean',
         ]);
 
-        try {
-            $brand->update($validated);
-            $brand->refresh();
-            return response()->json($brand);
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Error al actualizar la marca: ' . $e->getMessage()
-            ], 500);
-        }
+        $brand->update($validated);
+        return response()->json($brand);
     }
 
-    /**
-     * Eliminar una marca
-     * DELETE /api/brands/{brand}
-     */
     public function destroy(Brand $brand): JsonResponse
     {
-        try {
-            if ($brand->products()->count() > 0) {
-                return response()->json([
-                    'error' => 'No se puede eliminar la marca porque tiene productos asociados.'
-                ], 409);
-            }
-
-            $brand->delete();
-            return response()->json(null, 204);
-        } catch (\Exception $e) {
+        if ($brand->products()->count() > 0) {
             return response()->json([
-                'error' => 'No se puede eliminar la marca.'
+                'error' => 'No se puede eliminar la marca porque tiene productos asociados.'
             ], 409);
         }
+
+        $brand->delete();
+        return response()->json(null, 204);
     }
 }

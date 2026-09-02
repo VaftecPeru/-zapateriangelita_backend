@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Controllers\LeadController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\AuthController;
@@ -14,9 +13,6 @@ use App\Http\Controllers\ProductSizeController;
 use App\Http\Controllers\ProductColorController;
 use App\Http\Controllers\ReviewController;
 use App\Http\Controllers\FavoriteController;
-use App\Http\Controllers\CouponController;
-use App\Http\Controllers\BannerController;
-use App\Http\Controllers\ShippingMethodController;
 use App\Http\Controllers\AddressController;
 use App\Http\Controllers\OrderController;
 use Illuminate\Http\Request;
@@ -41,23 +37,13 @@ Route::middleware('throttle:100,1')->group(function () {
 
     Route::get('/services', [AdditionalServiceController::class, 'index']);
 
-    Route::post('/leads', [LeadController::class, 'store']);
-
     Route::get('/settings', [SettingController::class, 'index']);
 
     Route::get('/public/categories', [CategoryController::class, 'publicIndex']);
     Route::get('/public/subcategories', [SubcategoryController::class, 'publicIndex']);
 
-    // Catálogo público
-    Route::get('/public/brands', [BrandController::class, 'publicIndex']);
-    Route::get('/public/banners', [BannerController::class, 'publicIndex']);
-    Route::get('/public/shipping-methods', [ShippingMethodController::class, 'publicIndex']);
-
     // Reseñas públicas de un producto
     Route::get('/products/{product}/reviews', [ReviewController::class, 'publicIndex']);
-
-    // Validar cupón en checkout
-    Route::get('/coupons/check', [CouponController::class, 'check']);
 
 });
 
@@ -84,10 +70,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     Route::post('/logout', [AuthController::class, 'logout']);
 
-    Route::get('/my-bookings', [LeadController::class, 'clientLeads']);
-
     Route::get('/categories', [CategoryController::class, 'index']);
     Route::get('/categories/{category}', [CategoryController::class, 'show']);
+    Route::get('/brands', [BrandController::class, 'index']);
+    Route::get('/brands/{brand}', [BrandController::class, 'show']);
     Route::get('/subcategories', [SubcategoryController::class, 'index']);
     Route::get('/subcategories/{subcategory}', [SubcategoryController::class, 'show']);
 
@@ -128,24 +114,17 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/subcategories/{subcategory}', [SubcategoryController::class, 'update']);
         Route::delete('/subcategories/{subcategory}', [SubcategoryController::class, 'destroy']);
 
+        Route::post('/brands', [BrandController::class, 'store']);
+        Route::put('/brands/{brand}', [BrandController::class, 'update']);
+        Route::delete('/brands/{brand}', [BrandController::class, 'destroy']);
+
         Route::get('/stats', [StatsController::class, 'index']);
 
         Route::put('/settings/{key}', [SettingController::class, 'update']);
 
-        Route::get('/leads', [LeadController::class, 'index']);
-        Route::put('/leads/{lead}', [LeadController::class, 'update']);
-        Route::delete('/leads/{lead}', [LeadController::class, 'destroy']);
-
         Route::get('/users', [UserController::class, 'index']);
         Route::get('/users/{id}', [UserController::class, 'show']);
         Route::delete('/users/{user}', [UserController::class, 'destroy']);
-
-        // Marcas
-        Route::get('/brands', [BrandController::class, 'index']);
-        Route::get('/brands/{brand}', [BrandController::class, 'show']);
-        Route::post('/brands', [BrandController::class, 'store']);
-        Route::put('/brands/{brand}', [BrandController::class, 'update']);
-        Route::delete('/brands/{brand}', [BrandController::class, 'destroy']);
 
         // Tallas y colores de productos
         Route::get('/product-sizes', [ProductSizeController::class, 'index']);
@@ -162,24 +141,6 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/reviews', [ReviewController::class, 'index']);
         Route::put('/reviews/{review}', [ReviewController::class, 'update']);
         Route::delete('/reviews/{review}', [ReviewController::class, 'destroy']);
-
-        // Cupones
-        Route::get('/coupons', [CouponController::class, 'index']);
-        Route::post('/coupons', [CouponController::class, 'store']);
-        Route::put('/coupons/{coupon}', [CouponController::class, 'update']);
-        Route::delete('/coupons/{coupon}', [CouponController::class, 'destroy']);
-
-        // Banners
-        Route::get('/banners', [BannerController::class, 'index']);
-        Route::post('/banners', [BannerController::class, 'store']);
-        Route::put('/banners/{banner}', [BannerController::class, 'update']);
-        Route::delete('/banners/{banner}', [BannerController::class, 'destroy']);
-
-        // Métodos de envío
-        Route::get('/shipping-methods', [ShippingMethodController::class, 'index']);
-        Route::post('/shipping-methods', [ShippingMethodController::class, 'store']);
-        Route::put('/shipping-methods/{shippingMethod}', [ShippingMethodController::class, 'update']);
-        Route::delete('/shipping-methods/{shippingMethod}', [ShippingMethodController::class, 'destroy']);
 
         // Pedidos (gestión)
         Route::get('/orders', [OrderController::class, 'index']);

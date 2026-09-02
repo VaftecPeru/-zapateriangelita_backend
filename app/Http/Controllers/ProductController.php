@@ -66,23 +66,25 @@ class ProductController extends Controller
 
     public function index(): JsonResponse
     {
-        return response()->json(Product::paginate(20));
+        return response()->json(
+            Product::with('brand:id,name', 'category:id,name,slug', 'subcategory:id,name')
+                ->paginate(20)
+        );
     }
 
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'category' => 'required|string|max:100',
-            'category_id' => 'nullable|integer|exists:categories,id',
-            'brand' => 'required|string|max:100',
+            'brand_id' => 'nullable|integer|exists:brands,id',
+            'category_id' => 'required|integer|exists:categories,id',
+            'subcategory_id' => 'nullable|integer|exists:subcategories,id',
             'price' => 'required|numeric|min:0.01',
             'discounted_price' => 'nullable|numeric|min:0',
             'stock' => 'required|integer|min:0',
             'size' => 'nullable|string|max:50',
             'color' => 'nullable|string|max:50',
             'material' => 'nullable|string|max:100',
-            'gender' => 'nullable|string|max:50',
             'rating' => 'required|numeric|min:0|max:5',
             'reviews' => 'required|integer|min:0',
             'img' => 'nullable',
@@ -116,7 +118,7 @@ class ProductController extends Controller
         }
 
         try {
-            $fields = ['name', 'category', 'brand', 'size', 'color', 'material', 'gender', 'description', 'discount'];
+            $fields = ['name', 'size', 'color', 'material', 'description', 'discount'];
             foreach ($fields as $field) {
                 if (isset($validated[$field])) {
                     $validated[$field] = htmlspecialchars($validated[$field], ENT_QUOTES, 'UTF-8');
@@ -133,6 +135,7 @@ class ProductController extends Controller
 
     public function show(Product $product): JsonResponse
     {
+        $product->load('brand:id,name', 'category:id,name,slug', 'subcategory:id,name');
         return response()->json($product);
     }
 
@@ -141,16 +144,15 @@ class ProductController extends Controller
     {
         $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
             'name' => 'nullable|string|max:255',
-            'category' => 'nullable|string|max:100',
+            'brand_id' => 'nullable|integer|exists:brands,id',
             'category_id' => 'nullable|integer|exists:categories,id',
-            'brand' => 'nullable|string|max:100',
+            'subcategory_id' => 'nullable|integer|exists:subcategories,id',
             'price' => 'nullable|numeric|min:0.01',
             'discounted_price' => 'nullable|numeric|min:0',
             'stock' => 'nullable|integer|min:0',
             'size' => 'nullable|string|max:50',
             'color' => 'nullable|string|max:50',
             'material' => 'nullable|string|max:100',
-            'gender' => 'nullable|string|max:50',
             'rating' => 'nullable|numeric|min:0|max:5',
             'reviews' => 'nullable|integer|min:0',
             'img' => 'nullable',
@@ -218,7 +220,7 @@ class ProductController extends Controller
         unset($validated['img_file']);
 
         try {
-            $fields = ['name', 'category', 'brand', 'size', 'color', 'material', 'gender', 'description', 'discount'];
+            $fields = ['name', 'size', 'color', 'material', 'description', 'discount'];
             foreach ($fields as $field) {
                 if (isset($validated[$field])) {
                     $validated[$field] = htmlspecialchars($validated[$field], ENT_QUOTES, 'UTF-8');
