@@ -32,7 +32,7 @@ class ProductController extends Controller
 
         if (!$image) {
             $path = $file->store($subfolder, 'uploads');
-            return asset('uploads/' . $path);
+            return '/uploads/' . ltrim($path, '/');
         }
 
         $width = imagesx($image);
@@ -60,7 +60,7 @@ class ProductController extends Controller
         }
 
         imagedestroy($image);
-        return asset('uploads/' . $subfolder . '/' . $filename);
+        return '/uploads/' . $subfolder . '/' . $filename;
     }
 
 
