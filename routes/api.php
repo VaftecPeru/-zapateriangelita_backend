@@ -21,10 +21,10 @@ use Illuminate\Support\Facades\Mail;
 
 
 
-Route::middleware('throttle:60,1')->post('/register', [AuthController::class, 'register']);
-Route::middleware('throttle:60,1')->post('/login', [AuthController::class, 'login']);
-Route::middleware('throttle:10,1')->post('/forgot-password', [AuthController::class, 'forgotPassword']);
-Route::middleware('throttle:10,1')->post('/reset-password', [AuthController::class, 'resetPassword']);
+Route::middleware('throttle:8,1')->post('/register', [AuthController::class, 'register']);
+Route::middleware('throttle:8,1')->post('/login', [AuthController::class, 'login']);
+Route::middleware('throttle:5,1')->post('/forgot-password', [AuthController::class, 'forgotPassword']);
+Route::middleware('throttle:5,5')->post('/reset-password', [AuthController::class, 'resetPassword']);
 
 Route::get('/login', function () {
     return response()->json(['message' => 'Unauthenticated.'], 401);

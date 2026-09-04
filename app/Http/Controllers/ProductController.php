@@ -10,6 +10,38 @@ use Illuminate\Support\Facades\DB;
 class ProductController extends Controller
 {
 
+    private function deleteUploadImages(array $images, array $keptImages = []): void
+    {
+        $keptPaths = array_map(fn ($image) => $this->uploadPath($image), $keptImages);
+        foreach (array_unique($images) as $image) {
+            $path = $this->uploadPath($image);
+            if ($path && !in_array($path, $keptPaths, true) && is_file($path)) {
+                @unlink($path);
+            }
+        }
+    }
+
+    private function uploadPath(?string $image): ?string
+    {
+        if (!$image) {
+            return null;
+        }
+
+        $path = parse_url($image, PHP_URL_PATH) ?: $image;
+        $path = '/' . ltrim($path, '/');
+        if (!str_starts_with($path, '/uploads/')) {
+            return null;
+        }
+
+        $fullPath = realpath(public_path(ltrim($path, '/')));
+        $uploadsPath = realpath(public_path('uploads'));
+        if (!$fullPath || !$uploadsPath || !str_starts_with($fullPath, $uploadsPath . DIRECTORY_SEPARATOR)) {
+            return null;
+        }
+
+        return $fullPath;
+    }
+
     private function optimizeImage($file, $subfolder = 'products')
     {
         $mime = $file->getMimeType();
@@ -220,6 +252,11 @@ class ProductController extends Controller
         unset($validated['img_file']);
 
         try {
+            $previousImages = is_array($product->images) ? $product->images : [];
+            if ($product->img) {
+                $previousImages[] = $product->img;
+            }
+
             $fields = ['name', 'size', 'color', 'material', 'description', 'discount'];
             foreach ($fields as $field) {
                 if (isset($validated[$field])) {
@@ -228,6 +265,7 @@ class ProductController extends Controller
             }
 
             $product->update($validated);
+            $this->deleteUploadImages($previousImages, $finalImages);
             $product->refresh();
             return response()->json($product);
         } catch (\Exception $e) {
@@ -237,6 +275,11 @@ class ProductController extends Controller
 
     public function destroy(Product $product): JsonResponse
     {
+        $images = is_array($product->images) ? $product->images : [];
+        if ($product->img) {
+            $images[] = $product->img;
+        }
+        $this->deleteUploadImages($images);
         $product->delete();
         return response()->json(null, 204);
     }
