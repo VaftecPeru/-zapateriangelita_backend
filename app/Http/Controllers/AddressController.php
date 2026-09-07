@@ -30,9 +30,12 @@ class AddressController extends Controller
         $validated = $request->validate([
             'full_name' => 'nullable|string|max:150',
             'phone' => 'nullable|string|max:20',
+            'country' => 'required|string|max:100',
+            'state' => 'required|string|max:100',
+            'municipality' => 'required|string|max:100',
             'address' => 'nullable|string',
-            'city' => 'nullable|string|max:100',
-            'district' => 'nullable|string|max:100',
+            'city' => 'required|string|max:100',
+            'postal_code' => 'required|string|max:20',
             'reference' => 'nullable|string',
             'is_default' => 'nullable|boolean',
         ]);
@@ -68,9 +71,12 @@ class AddressController extends Controller
         $validated = $request->validate([
             'full_name' => 'nullable|string|max:150',
             'phone' => 'nullable|string|max:20',
+            'country' => 'sometimes|required|string|max:100',
+            'state' => 'sometimes|required|string|max:100',
+            'municipality' => 'sometimes|required|string|max:100',
             'address' => 'nullable|string',
-            'city' => 'nullable|string|max:100',
-            'district' => 'nullable|string|max:100',
+            'city' => 'sometimes|required|string|max:100',
+            'postal_code' => 'sometimes|required|string|max:20',
             'reference' => 'nullable|string',
             'is_default' => 'nullable|boolean',
         ]);

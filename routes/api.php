@@ -15,6 +15,7 @@ use App\Http\Controllers\ReviewController;
 use App\Http\Controllers\FavoriteController;
 use App\Http\Controllers\AddressController;
 use App\Http\Controllers\OrderController;
+use App\Http\Controllers\LeadController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Mail;
@@ -25,6 +26,7 @@ Route::middleware('throttle:8,1')->post('/register', [AuthController::class, 're
 Route::middleware('throttle:8,1')->post('/login', [AuthController::class, 'login']);
 Route::middleware('throttle:5,1')->post('/forgot-password', [AuthController::class, 'forgotPassword']);
 Route::middleware('throttle:5,5')->post('/reset-password', [AuthController::class, 'resetPassword']);
+Route::middleware('throttle:10,1')->post('/leads', [LeadController::class, 'store']);
 
 Route::get('/login', function () {
     return response()->json(['message' => 'Unauthenticated.'], 401);
@@ -59,9 +61,6 @@ Route::middleware(['auth:sanctum'])->group(function () {
             'name' => 'required|string|max:255',
             'birthdate' => 'nullable|date',
             'gender' => 'nullable|string|max:50',
-            'state' => 'nullable|string|max:100',
-            'municipality' => 'nullable|string|max:100',
-            'city' => 'nullable|string|max:100',
             'phone' => 'nullable|string|max:50',
         ]);
         $user->update($validated);
@@ -119,6 +118,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::delete('/brands/{brand}', [BrandController::class, 'destroy']);
 
         Route::get('/stats', [StatsController::class, 'index']);
+        Route::get('/leads', [LeadController::class, 'index']);
+        Route::put('/leads/{lead}', [LeadController::class, 'update']);
+        Route::delete('/leads/{lead}', [LeadController::class, 'destroy']);
 
         Route::put('/settings/{key}', [SettingController::class, 'update']);
 
