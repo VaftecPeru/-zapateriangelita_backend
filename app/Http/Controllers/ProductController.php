@@ -123,16 +123,14 @@ class ProductController extends Controller
             'img_file' => 'nullable|file|image|mimes:jpeg,png,jpg,gif,webp|max:20480',
             'new_images.*' => 'nullable|file|image|mimes:jpeg,png,jpg,gif,webp|max:20480',
             'description' => 'nullable|string|max:5000',
-            'discount' => 'nullable|string|max:50',
+            'discount' => 'nullable|numeric|min:0|max:100',
         ]);
 
-        if (empty($validated['discounted_price'])) {
-            $validated['discounted_price'] = null;
-        }
-
-        if (empty($validated['discount'])) {
-            $validated['discount'] = null;
-        }
+        $discount = (float) ($validated['discount'] ?? 0);
+        $validated['discounted_price'] = $discount > 0
+            ? round((float) $validated['price'] * (1 - min($discount, 100) / 100), 2)
+            : null;
+        $validated['discount'] = $discount > 0 ? (string) $discount : null;
 
         $imageUrls = [];
         if ($request->hasFile('new_images')) {
@@ -191,7 +189,7 @@ class ProductController extends Controller
             'img_file' => 'sometimes|nullable|file|image|mimes:jpeg,png,jpg,webp|max:20480',
             'new_images.*' => 'sometimes|nullable|file|image|mimes:jpeg,png,jpg,webp|max:20480',
             'description' => 'nullable|string|max:5000',
-            'discount' => 'nullable|string|max:50',
+            'discount' => 'nullable|numeric|min:0|max:100',
         ]);
 
         if ($validator->fails()) {
@@ -200,12 +198,12 @@ class ProductController extends Controller
 
         $validated = $validator->validated();
 
-        if (!isset($validated['discounted_price']) || $validated['discounted_price'] === null || $validated['discounted_price'] == 0) {
-            $validated['discounted_price'] = null;
-        }
-        if (!isset($validated['discount']) || empty($validated['discount'])) {
-            $validated['discount'] = null;
-        }
+        $price = array_key_exists('price', $validated) ? (float) $validated['price'] : (float) $product->price;
+        $discount = array_key_exists('discount', $validated) ? (float) $validated['discount'] : (float) $product->discount;
+        $validated['discounted_price'] = $discount > 0
+            ? round($price * (1 - min($discount, 100) / 100), 2)
+            : null;
+        $validated['discount'] = $discount > 0 ? (string) $discount : null;
 
         $imageSlots = $request->input('image_slots');
         if (is_string($imageSlots)) {

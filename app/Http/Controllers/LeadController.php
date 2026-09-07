@@ -15,12 +15,12 @@ class LeadController extends Controller
             'item_id' => 'nullable|integer',
             'email' => 'required|email|max:255',
             'first_name' => 'required|string|max:100',
-            'last_name' => 'nullable|string|max:100',
+            'last_name' => 'required|string|min:2|max:100',
             'phone' => 'required|string|max:30',
-            'product_interest' => 'nullable|string|max:100',
-            'shoe_size' => 'nullable|string|max:20',
-            'contact_preference' => 'nullable|string|max:30',
-            'message' => 'nullable|string|max:2000',
+            'product_interest' => 'required|string|max:100',
+            'shoe_size' => 'required|string|max:20',
+            'contact_preference' => 'required|string|max:30',
+            'message' => 'required|string|min:10|max:2000',
         ]);
 
         $lead = Lead::create(array_merge($validated, [
