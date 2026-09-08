@@ -12,7 +12,7 @@ use App\Http\Controllers\SubcategoryController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Mail;
-
+use App\Http\Controllers\Api\OpenpayController;
 
 
 Route::middleware('throttle:60,1')->post('/register', [AuthController::class, 'register']);
@@ -39,6 +39,9 @@ Route::middleware('throttle:100,1')->group(function () {
     Route::get('/public/subcategories', [SubcategoryController::class, 'publicIndex']);
 });
 
+Route::get('/openpay/config',[OpenpayController::class, 'config']);
+// Webhook de Openpay
+Route::post('/openpay/webhook', [OpenpayController::class, 'webhook']);
 Route::middleware(['auth:sanctum'])->group(function () {
 
     Route::get('/user', function (Request $request) {
@@ -72,6 +75,25 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/subcategories', [SubcategoryController::class, 'index']);
     Route::get('/subcategories/{subcategory}', [SubcategoryController::class, 'show']);
 
+    // Favoritos (wishlist)
+    Route::get('/favorites', [FavoriteController::class, 'index']);
+    Route::get('/favorites/status', [FavoriteController::class, 'status']);
+    Route::post('/favorites', [FavoriteController::class, 'toggle']);
+
+    // Direcciones de envío
+    Route::get('/addresses', [AddressController::class, 'index']);
+    Route::post('/addresses', [AddressController::class, 'store']);
+    Route::put('/addresses/{address}', [AddressController::class, 'update']);
+    Route::delete('/addresses/{address}', [AddressController::class, 'destroy']);
+
+    // Reseñas (crear)
+    Route::post('/reviews', [ReviewController::class, 'store']);
+
+    // Pedidos del cliente
+    Route::post('/orders', [OrderController::class, 'store']);
+    Route::get('/my-orders', [OrderController::class, 'myOrders']);
+    // Pago con Openpay
+    Route::post('/payments/openpay/charge',[OpenpayController::class, 'charge']);
     Route::middleware(['admin'])->group(function () {
 
         Route::post('/products', [ProductController::class, 'store']);
@@ -104,6 +126,29 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/users', [UserController::class, 'index']);
         Route::get('/users/{id}', [UserController::class, 'show']);
         Route::delete('/users/{user}', [UserController::class, 'destroy']);
+
+        // Tallas y colores de productos
+        Route::get('/product-sizes', [ProductSizeController::class, 'index']);
+        Route::post('/product-sizes', [ProductSizeController::class, 'store']);
+        Route::put('/product-sizes/{productSize}', [ProductSizeController::class, 'update']);
+        Route::delete('/product-sizes/{productSize}', [ProductSizeController::class, 'destroy']);
+
+        Route::get('/product-colors', [ProductColorController::class, 'index']);
+        Route::post('/product-colors', [ProductColorController::class, 'store']);
+        Route::put('/product-colors/{productColor}', [ProductColorController::class, 'update']);
+        Route::delete('/product-colors/{productColor}', [ProductColorController::class, 'destroy']);
+
+        // Reseñas (moderación)
+        Route::get('/reviews', [ReviewController::class, 'index']);
+        Route::put('/reviews/{review}', [ReviewController::class, 'update']);
+        Route::delete('/reviews/{review}', [ReviewController::class, 'destroy']);
+
+        // Pedidos (gestión)
+        Route::get('/orders', [OrderController::class, 'index']);
+        Route::get('/orders/{order}', [OrderController::class, 'show']);
+        Route::put('/orders/{order}/status', [OrderController::class, 'updateStatus']);
+        
+        
     });
 });
 

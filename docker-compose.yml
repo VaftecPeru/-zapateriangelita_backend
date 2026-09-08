@@ -1,0 +1,21 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: zapateria_mysql
+    restart: unless-stopped
+
+    ports:
+      - "3307:3306"
+
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: zapateriangelita_bd
+      MYSQL_USER: 
+      MYSQL_PASSWORD: 
+
+    volumes:
+      - zapateria_mysql_data:/var/lib/mysql
+
+volumes:
+  zapateria_mysql_data:
+    name: zapateria_mysql_data
