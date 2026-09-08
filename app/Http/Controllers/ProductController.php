@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Product;
+use App\Models\ProductColor;
+use App\Models\ProductSize;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -95,11 +97,50 @@ class ProductController extends Controller
         return '/uploads/' . $subfolder . '/' . $filename;
     }
 
+    private function syncVariants(Product $product): void
+    {
+        $product->sizes()->delete();
+        $product->colors()->delete();
+
+        $sizes = collect(preg_split('/[,\/|]+/', (string) $product->size))
+            ->map(fn ($size) => trim($size))
+            ->filter(fn ($size) => $size !== '' && strlen($size) <= 10)
+            ->unique();
+
+        foreach ($sizes as $size) {
+            ProductSize::create([
+                'product_id' => $product->id,
+                'size' => $size,
+                'stock' => (int) $product->stock,
+            ]);
+        }
+
+        $hexByColor = [
+            'blanco' => '#ffffff', 'negro' => '#111111', 'rojo' => '#d62828',
+            'azul' => '#2563eb', 'verde' => '#2e8b57', 'amarillo' => '#facc15',
+            'rosa' => '#f472b6', 'morado' => '#7c3aed', 'gris' => '#9ca3af',
+            'cafe' => '#8b5e3c', 'marron' => '#8b5e3c', 'beige' => '#d6c2a1',
+        ];
+        $colors = collect(preg_split('/[,\/|]+/', (string) $product->color))
+            ->map(fn ($color) => trim($color))
+            ->filter()
+            ->unique();
+
+        foreach ($colors as $color) {
+            $normalized = mb_strtolower($color);
+            ProductColor::create([
+                'product_id' => $product->id,
+                'color' => $color,
+                'hex' => $hexByColor[$normalized] ?? (str_starts_with($color, '#') ? $color : '#888888'),
+            ]);
+        }
+    }
+
 
     public function index(): JsonResponse
     {
         return response()->json(
-            Product::with('brand:id,name', 'category:id,name,slug', 'subcategory:id,name')
+            Product::with('brand:id,name', 'category:id,name,slug', 'subcategory:id,name', 'sizes', 'colors')
                 ->paginate(20)
         );
     }
@@ -155,7 +196,11 @@ class ProductController extends Controller
                 }
             }
 
-            $product = Product::create($validated);
+            DB::transaction(function () use (&$product, $validated) {
+                $product = Product::create($validated);
+                $this->syncVariants($product);
+            });
+            $product->load('sizes', 'colors');
             return response()->json($product, 201);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Error al crear el producto: ' . $e->getMessage()], 500);
@@ -165,7 +210,7 @@ class ProductController extends Controller
 
     public function show(Product $product): JsonResponse
     {
-        $product->load('brand:id,name', 'category:id,name,slug', 'subcategory:id,name');
+        $product->load('brand:id,name', 'category:id,name,slug', 'subcategory:id,name', 'sizes', 'colors');
         return response()->json($product);
     }
 
@@ -262,9 +307,13 @@ class ProductController extends Controller
                 }
             }
 
-            $product->update($validated);
+            DB::transaction(function () use ($product, $validated) {
+                $product->update($validated);
+                $this->syncVariants($product->fresh());
+            });
             $this->deleteUploadImages($previousImages, $finalImages);
             $product->refresh();
+            $product->load('sizes', 'colors');
             return response()->json($product);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Error al actualizar el producto: ' . $e->getMessage()], 500);

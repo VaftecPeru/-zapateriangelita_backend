@@ -123,7 +123,7 @@ foreach ($validated['items'] as $item) {
             $code = $this->generateOrderCode();
 
             $order = Order::create([
-                'user_id' => $user->id,
+                'user_id' => $user?->id,
                 'code' => $code,
                 'status' => 'pending',
                 'subtotal' => round($subtotal, 2),
@@ -138,7 +138,7 @@ foreach ($validated['items'] as $item) {
                 'shipping_municipality' => $validated['shipping_municipality'] ?? null,
                 'shipping_postal_code' => $validated['shipping_postal_code'] ?? null,
                 'shipping_phone' => $validated['shipping_phone'] ?? null,
-                'customer_name' => $validated['customer_name'] ?? $user->name,
+                'customer_name' => $validated['customer_name'] ?? $user?->name,
                 'notes' => $validated['notes'] ?? null,
             ]);
 

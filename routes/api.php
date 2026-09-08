@@ -44,6 +44,9 @@ Route::middleware('throttle:100,1')->group(function () {
     Route::get('/public/categories', [CategoryController::class, 'publicIndex']);
     Route::get('/public/subcategories', [SubcategoryController::class, 'publicIndex']);
 
+    // Checkout rápido para clientes invitados
+    Route::post('/orders', [OrderController::class, 'store']);
+
     // Reseñas públicas de un producto
     Route::get('/products/{product}/reviews', [ReviewController::class, 'publicIndex']);
 
@@ -91,7 +94,6 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/reviews', [ReviewController::class, 'store']);
 
     // Pedidos del cliente
-    Route::post('/orders', [OrderController::class, 'store']);
     Route::get('/my-orders', [OrderController::class, 'myOrders']);
 
     Route::middleware(['admin'])->group(function () {
