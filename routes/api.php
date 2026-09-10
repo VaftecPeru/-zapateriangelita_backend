@@ -1,5 +1,7 @@
 <?php
 
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\LeadController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SettingController;
@@ -9,11 +11,14 @@ use App\Http\Controllers\StatsController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\SubcategoryController;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\Mail;
-use App\Http\Controllers\Api\OpenpayController;
+use App\Http\Controllers\AddressController;
+use App\Http\Controllers\FavoriteController;
+use App\Http\Controllers\ReviewController;
+use App\Http\Controllers\OrderController;
+use App\Http\Controllers\ProductSizeController;
+use App\Http\Controllers\ProductColorController;
 
+use App\Http\Controllers\Api\OpenpayController;
 
 Route::middleware('throttle:60,1')->post('/register', [AuthController::class, 'register']);
 Route::middleware('throttle:60,1')->post('/login', [AuthController::class, 'login']);
@@ -39,8 +44,10 @@ Route::middleware('throttle:100,1')->group(function () {
     Route::get('/public/subcategories', [SubcategoryController::class, 'publicIndex']);
 });
 
-Route::get('/openpay/config',[OpenpayController::class, 'config']);
-// Webhook de Openpay
+// Openpay - configuración pública
+Route::get('/openpay/config', [OpenpayController::class, 'config']);
+
+// Openpay - webhook
 Route::post('/openpay/webhook', [OpenpayController::class, 'webhook']);
 Route::middleware(['auth:sanctum'])->group(function () {
 
@@ -92,8 +99,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Pedidos del cliente
     Route::post('/orders', [OrderController::class, 'store']);
     Route::get('/my-orders', [OrderController::class, 'myOrders']);
+
     // Pago con Openpay
     Route::post('/payments/openpay/charge',[OpenpayController::class, 'charge']);
+    Route::get(    '/payments/openpay/verify',    [OpenpayController::class, 'verify']);
     Route::middleware(['admin'])->group(function () {
 
         Route::post('/products', [ProductController::class, 'store']);

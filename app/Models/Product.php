@@ -129,4 +129,13 @@ class Product extends Model
         }
         return 'S/ ' . number_format($this->discounted_price, 2);
     }
+    public function sizes()
+    {
+        return $this->hasMany(ProductSize::class, 'product_id');
+    }
+
+    public function colors()
+    {
+        return $this->hasMany(ProductColor::class, 'product_id');
+    }
 }

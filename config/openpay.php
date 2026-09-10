@@ -2,7 +2,9 @@
 
 return [
     'merchant_id' => env('OPENPAY_MERCHANT_ID'),
+
     'public_key' => env('OPENPAY_PUBLIC_KEY'),
+
     'private_key' => env('OPENPAY_PRIVATE_KEY'),
 
     'sandbox' => filter_var(
@@ -18,5 +20,10 @@ return [
     'currency' => env(
         'OPENPAY_CURRENCY',
         'MXN'
+    ),
+
+    'redirect_url' => env(
+        'OPENPAY_REDIRECT_URL',
+        'http://localhost:5173'
     ),
 ];
