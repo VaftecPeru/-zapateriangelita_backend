@@ -23,6 +23,22 @@ class ProductController extends Controller
         }
     }
 
+    private function flattenImageValues(?array $images): array
+    {
+        if (!$images) {
+            return [];
+        }
+
+        $result = [];
+        array_walk_recursive($images, function ($image) use (&$result) {
+            if (is_string($image) && $image !== '') {
+                $result[] = $image;
+            }
+        });
+
+        return $result;
+    }
+
     private function uploadPath(?string $image): ?string
     {
         if (!$image) {
@@ -102,7 +118,7 @@ class ProductController extends Controller
         $product->sizes()->delete();
         $product->colors()->delete();
 
-        $sizes = collect(preg_split('/[,\/|]+/', (string) $product->size))
+        $sizes = collect(preg_split('/[,|]+/', (string) $product->size))
             ->map(fn ($size) => trim($size))
             ->filter(fn ($size) => $size !== '' && strlen($size) <= 10)
             ->unique();
@@ -136,6 +152,60 @@ class ProductController extends Controller
         }
     }
 
+    private function processColorImages(Request $request, array $colors, ?array $existing = null): ?array
+    {
+        $uploaded = $request->file('color_images', []);
+        $existing = $existing ?? [];
+        $result = [];
+
+        foreach ($colors as $index => $color) {
+            $files = $uploaded[$index] ?? [];
+            $files = is_array($files) ? array_slice($files, 0, 5) : [];
+            if (!$files && !empty($existing[$color])) {
+                $result[$color] = array_slice($existing[$color], 0, 5);
+                continue;
+            }
+
+            if ($files) {
+                $result[$color] = array_map(fn ($file) => $this->optimizeImage($file), $files);
+            }
+        }
+
+        return $result ?: null;
+    }
+
+    private function normalizeColorSizes(?string $value): ?array
+    {
+        if (!$value) {
+            return null;
+        }
+
+        $decoded = json_decode($value, true);
+        if (!is_array($decoded)) {
+            return null;
+        }
+
+        $result = [];
+        foreach ($decoded as $color => $sizes) {
+            if (!is_string($color) || !is_array($sizes)) {
+                continue;
+            }
+
+            $normalizedSizes = collect($sizes)
+                ->map(fn ($size) => trim((string) $size))
+                ->filter(fn ($size) => $size !== '' && strlen($size) <= 10)
+                ->unique()
+                ->values()
+                ->all();
+
+            if ($normalizedSizes) {
+                $result[trim($color)] = $normalizedSizes;
+            }
+        }
+
+        return $result ?: null;
+    }
+
 
     public function index(): JsonResponse
     {
@@ -165,6 +235,8 @@ class ProductController extends Controller
             'new_images.*' => 'nullable|file|image|mimes:jpeg,png,jpg,gif,webp|max:20480',
             'description' => 'nullable|string|max:5000',
             'discount' => 'nullable|numeric|min:0|max:100',
+            'status' => 'required|in:normal,oferta,nuevo',
+            'color_sizes' => 'nullable|json',
         ]);
 
         $discount = (float) ($validated['discount'] ?? 0);
@@ -172,6 +244,15 @@ class ProductController extends Controller
             ? round((float) $validated['price'] * (1 - min($discount, 100) / 100), 2)
             : null;
         $validated['discount'] = $discount > 0 ? (string) $discount : null;
+
+        $colors = collect(preg_split('/[,\/|]+/', (string) ($validated['color'] ?? '')))
+            ->map(fn ($color) => trim($color))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+        $validated['color_images'] = $this->processColorImages($request, $colors);
+        $validated['color_sizes'] = $this->normalizeColorSizes($request->input('color_sizes'));
 
         $imageUrls = [];
         if ($request->hasFile('new_images')) {
@@ -235,6 +316,9 @@ class ProductController extends Controller
             'new_images.*' => 'sometimes|nullable|file|image|mimes:jpeg,png,jpg,webp|max:20480',
             'description' => 'nullable|string|max:5000',
             'discount' => 'nullable|numeric|min:0|max:100',
+            'status' => 'sometimes|in:normal,oferta,nuevo',
+            'color_images' => 'sometimes|array',
+            'color_sizes' => 'sometimes|json',
         ]);
 
         if ($validator->fails()) {
@@ -249,6 +333,15 @@ class ProductController extends Controller
             ? round($price * (1 - min($discount, 100) / 100), 2)
             : null;
         $validated['discount'] = $discount > 0 ? (string) $discount : null;
+
+        $colors = collect(preg_split('/[,\/|]+/', (string) ($validated['color'] ?? $product->color)))
+            ->map(fn ($color) => trim($color))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+        $validated['color_images'] = $this->processColorImages($request, $colors, $product->color_images);
+        $validated['color_sizes'] = $this->normalizeColorSizes($request->input('color_sizes')) ?? $product->color_sizes;
 
         $imageSlots = $request->input('image_slots');
         if (is_string($imageSlots)) {
@@ -299,6 +392,8 @@ class ProductController extends Controller
             if ($product->img) {
                 $previousImages[] = $product->img;
             }
+            $previousColorImages = $this->flattenImageValues($product->color_images);
+            $keptImages = array_merge($finalImages, $this->flattenImageValues($validated['color_images'] ?? null));
 
             $fields = ['name', 'size', 'color', 'material', 'description', 'discount'];
             foreach ($fields as $field) {
@@ -311,7 +406,7 @@ class ProductController extends Controller
                 $product->update($validated);
                 $this->syncVariants($product->fresh());
             });
-            $this->deleteUploadImages($previousImages, $finalImages);
+            $this->deleteUploadImages(array_merge($previousImages, $previousColorImages), $keptImages);
             $product->refresh();
             $product->load('sizes', 'colors');
             return response()->json($product);
@@ -326,6 +421,7 @@ class ProductController extends Controller
         if ($product->img) {
             $images[] = $product->img;
         }
+        $images = array_merge($images, $this->flattenImageValues($product->color_images));
         $this->deleteUploadImages($images);
         $product->delete();
         return response()->json(null, 204);

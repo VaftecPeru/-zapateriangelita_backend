@@ -24,8 +24,11 @@ class Product extends Model
         'reviews',
         'img',
         'images',
+        'color_images',
+        'color_sizes',
         'description',
         'discount',
+        'status',
         'category_id',
         'subcategory_id',
     ];
@@ -37,6 +40,8 @@ class Product extends Model
         'rating' => 'float',
         'reviews' => 'integer',
         'images' => 'array',
+        'color_images' => 'array',
+        'color_sizes' => 'array',
     ];
 
     

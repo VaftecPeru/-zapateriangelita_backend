@@ -46,6 +46,7 @@ Route::middleware('throttle:100,1')->group(function () {
 
     // Checkout rápido para clientes invitados
     Route::post('/orders', [OrderController::class, 'store']);
+    Route::put('/orders/{order}/email', [OrderController::class, 'updateEmail']);
 
     // Reseñas públicas de un producto
     Route::get('/products/{product}/reviews', [ReviewController::class, 'publicIndex']);
@@ -61,10 +62,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/user/update', function (Request $request) {
         $user = $request->user();
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
+            'name' => ['required', 'string', 'max:255', 'regex:/^[\pL]+(?:[\s\'-][\pL]+)*$/u'],
             'birthdate' => 'nullable|date',
             'gender' => 'nullable|string|max:50',
-            'phone' => 'nullable|string|max:50',
+            'phone' => ['nullable', 'digits_between:7,20'],
         ]);
         $user->update($validated);
         return response()->json($user);

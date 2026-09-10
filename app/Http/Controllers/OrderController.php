@@ -45,6 +45,7 @@ class OrderController extends Controller
             'shipping_postal_code' => 'nullable|string|max:20',
             'shipping_phone' => 'nullable|string|max:20',
             'payment_method' => 'nullable|string|max:50',
+            'customer_email' => 'nullable|email|max:255',
             'notes' => 'nullable|string|max:2000',
         ]);
 
@@ -70,6 +71,14 @@ foreach ($validated['items'] as $item) {
 
                 // Validar stock por talla si se especificó
                 if (!empty($item['size'])) {
+                    $colorSizes = $product->color_sizes ?? [];
+                    if (!empty($item['color']) && !empty($colorSizes[$item['color']]) && !in_array($item['size'], $colorSizes[$item['color']], true)) {
+                        DB::rollBack();
+                        return response()->json([
+                            'error' => "La talla '{$item['size']}' no está disponible para el color '{$item['color']}'."
+                        ], 422);
+                    }
+
                     $productSize = $product->sizes->firstWhere('size', $item['size']);
                     if (!$productSize) {
                         DB::rollBack();
@@ -139,6 +148,7 @@ foreach ($validated['items'] as $item) {
                 'shipping_postal_code' => $validated['shipping_postal_code'] ?? null,
                 'shipping_phone' => $validated['shipping_phone'] ?? null,
                 'customer_name' => $validated['customer_name'] ?? $user?->name,
+                'customer_email' => $validated['customer_email'] ?? $user?->email,
                 'notes' => $validated['notes'] ?? null,
             ]);
 
@@ -173,6 +183,17 @@ foreach ($validated['items'] as $item) {
                 'error' => 'Error al crear el pedido: ' . $e->getMessage()
             ], 500);
         }
+    }
+
+    public function updateEmail(Request $request, Order $order): JsonResponse
+    {
+        $validated = $request->validate([
+            'customer_email' => 'required|email|max:255',
+        ]);
+
+        $order->update(['customer_email' => $validated['customer_email']]);
+
+        return response()->json($order);
     }
 /**
      * Pedidos del usuario autenticado
