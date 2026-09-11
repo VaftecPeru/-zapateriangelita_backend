@@ -23,6 +23,15 @@ return [
             'ignore_exceptions' => false,
         ],
 
+        'openpay' => [
+            'driver' => 'single',
+            'path' => storage_path('logs/openpay.log'),
+            'level' => env('OPENPAY_LOG_LEVEL', 'info'),
+            'replace_placeholders' => true,
+            'permission' => 0660,
+            'locking' => true,
+        ],
+
         'single' => [
             'driver' => 'single',
             'path' => storage_path('logs/laravel.log'),
