@@ -12,7 +12,7 @@ class SettingController extends Controller
     public function index(): JsonResponse
     {
         // Solo permitimos exponer llaves que no sean sensibles
-        $publicKeys = ['whatsapp_number', 'company_name', 'logo_url', 'contact_email'];
+        $publicKeys = ['whatsapp_number', 'company_name', 'logo_url', 'contact_email', 'reservation_policies', 'privacy_policy'];
         
         $settings = Setting::whereIn('key', $publicKeys)
             ->get()

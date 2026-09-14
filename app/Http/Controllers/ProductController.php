@@ -218,6 +218,7 @@ class ProductController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
+            'product_code' => 'nullable|string|max:100',
             'name' => 'required|string|max:255',
             'brand_id' => 'nullable|integer|exists:brands,id',
             'category_id' => 'required|integer|exists:categories,id',
@@ -299,6 +300,7 @@ class ProductController extends Controller
     public function update(Request $request, Product $product): JsonResponse
     {
         $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
+            'product_code' => 'nullable|string|max:100',
             'name' => 'nullable|string|max:255',
             'brand_id' => 'nullable|integer|exists:brands,id',
             'category_id' => 'nullable|integer|exists:categories,id',
