@@ -1,8 +1,5 @@
 <?php
 
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\LeadController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\AuthController;
@@ -11,19 +8,25 @@ use App\Http\Controllers\StatsController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\SubcategoryController;
-use App\Http\Controllers\AddressController;
-use App\Http\Controllers\FavoriteController;
-use App\Http\Controllers\ReviewController;
-use App\Http\Controllers\OrderController;
+use App\Http\Controllers\BrandController;
 use App\Http\Controllers\ProductSizeController;
 use App\Http\Controllers\ProductColorController;
+use App\Http\Controllers\ReviewController;
+use App\Http\Controllers\FavoriteController;
+use App\Http\Controllers\AddressController;
+use App\Http\Controllers\OrderController;
+use App\Http\Controllers\LeadController;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Mail;
 
-use App\Http\Controllers\Api\OpenpayController;
 
-Route::middleware('throttle:60,1')->post('/register', [AuthController::class, 'register']);
+
+Route::middleware('throttle:30,1')->post('/register', [AuthController::class, 'register']);
 Route::middleware('throttle:60,1')->post('/login', [AuthController::class, 'login']);
-Route::middleware('throttle:10,1')->post('/forgot-password', [AuthController::class, 'forgotPassword']);
-Route::middleware('throttle:10,1')->post('/reset-password', [AuthController::class, 'resetPassword']);
+Route::middleware('throttle:20,1')->post('/forgot-password', [AuthController::class, 'forgotPassword']);
+Route::middleware('throttle:20,5')->post('/reset-password', [AuthController::class, 'resetPassword']);
+Route::middleware('throttle:60,1')->post('/leads', [LeadController::class, 'store']);
 
 Route::get('/login', function () {
     return response()->json(['message' => 'Unauthenticated.'], 401);
@@ -36,12 +39,14 @@ Route::middleware('throttle:100,1')->group(function () {
 
     Route::get('/services', [AdditionalServiceController::class, 'index']);
 
-    Route::post('/leads', [LeadController::class, 'store']);
-
     Route::get('/settings', [SettingController::class, 'index']);
 
     Route::get('/public/categories', [CategoryController::class, 'publicIndex']);
     Route::get('/public/subcategories', [SubcategoryController::class, 'publicIndex']);
+
+    // Reseñas públicas de un producto
+    Route::get('/products/{product}/reviews', [ReviewController::class, 'publicIndex']);
+
 });
 
 // Openpay - configuración pública
@@ -61,9 +66,6 @@ Route::middleware(['auth:sanctum'])->group(function () {
             'name' => 'required|string|max:255',
             'birthdate' => 'nullable|date',
             'gender' => 'nullable|string|max:50',
-            'state' => 'nullable|string|max:100',
-            'municipality' => 'nullable|string|max:100',
-            'city' => 'nullable|string|max:100',
             'phone' => 'nullable|string|max:50',
         ]);
         $user->update($validated);
@@ -72,13 +74,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     Route::post('/logout', [AuthController::class, 'logout']);
 
-    Route::get('/my-bookings', [LeadController::class, 'clientLeads']);
-
-
-
-    // Categorías y subcategorías (lectura para usuarios autenticados)
     Route::get('/categories', [CategoryController::class, 'index']);
     Route::get('/categories/{category}', [CategoryController::class, 'show']);
+    Route::get('/brands', [BrandController::class, 'index']);
+    Route::get('/brands/{brand}', [BrandController::class, 'show']);
     Route::get('/subcategories', [SubcategoryController::class, 'index']);
     Route::get('/subcategories/{subcategory}', [SubcategoryController::class, 'show']);
 
@@ -100,9 +99,6 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/orders', [OrderController::class, 'store']);
     Route::get('/my-orders', [OrderController::class, 'myOrders']);
 
-    // Pago con Openpay
-    Route::post('/payments/openpay/charge',[OpenpayController::class, 'charge']);
-    Route::get(    '/payments/openpay/verify',    [OpenpayController::class, 'verify']);
     Route::middleware(['admin'])->group(function () {
 
         Route::post('/products', [ProductController::class, 'store']);
@@ -114,23 +110,24 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/services/{service}', [AdditionalServiceController::class, 'update']);
         Route::delete('/services/{service}', [AdditionalServiceController::class, 'destroy']);
 
-        // Categorías CRUD (admin)
         Route::post('/categories', [CategoryController::class, 'store']);
         Route::put('/categories/{category}', [CategoryController::class, 'update']);
         Route::delete('/categories/{category}', [CategoryController::class, 'destroy']);
 
-        // Subcategorías CRUD (admin)
         Route::post('/subcategories', [SubcategoryController::class, 'store']);
         Route::put('/subcategories/{subcategory}', [SubcategoryController::class, 'update']);
         Route::delete('/subcategories/{subcategory}', [SubcategoryController::class, 'destroy']);
 
+        Route::post('/brands', [BrandController::class, 'store']);
+        Route::put('/brands/{brand}', [BrandController::class, 'update']);
+        Route::delete('/brands/{brand}', [BrandController::class, 'destroy']);
+
         Route::get('/stats', [StatsController::class, 'index']);
-
-        Route::put('/settings/{key}', [SettingController::class, 'update']);
-
         Route::get('/leads', [LeadController::class, 'index']);
         Route::put('/leads/{lead}', [LeadController::class, 'update']);
         Route::delete('/leads/{lead}', [LeadController::class, 'destroy']);
+
+        Route::put('/settings/{key}', [SettingController::class, 'update']);
 
         Route::get('/users', [UserController::class, 'index']);
         Route::get('/users/{id}', [UserController::class, 'show']);
@@ -156,8 +153,6 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/orders', [OrderController::class, 'index']);
         Route::get('/orders/{order}', [OrderController::class, 'show']);
         Route::put('/orders/{order}/status', [OrderController::class, 'updateStatus']);
-        
-        
     });
 });
 

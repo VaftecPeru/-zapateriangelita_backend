@@ -20,10 +20,7 @@ class AuthController extends Controller
             'password' => 'required|string|min:6|regex:/[A-Z]/|regex:/[0-9]/|confirmed',
             'gender' => 'required|string',
             'birthdate' => 'required|date|before_or_equal:' . now()->subYears(18)->format('Y-m-d'),
-            'state' => 'required|string',
-            'municipality' => 'required|string',
-            'city' => 'required|string',
-            'phone' => 'required|string',
+            'phone' => 'required|string|min:7|max:50',
         ], [
             'birthdate.before_or_equal' => 'Debes ser mayor de edad para registrarte.',
             'password.regex' => 'La contraseña debe tener mayúsculas y números.',
@@ -39,11 +36,8 @@ class AuthController extends Controller
             'password' => Hash::make($request->password),
             'gender' => $request->gender,
             'birthdate' => $request->birthdate,
-            'state' => $request->state,
-            'municipality' => $request->municipality,
-            'city' => $request->city,
-            'role' => 'user',
             'phone' => $request->phone,
+            'role' => 'user',
         ]);
 
         try {

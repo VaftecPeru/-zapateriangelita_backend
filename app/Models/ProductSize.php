@@ -11,7 +11,11 @@ class ProductSize extends Model
 
     protected $table = 'product_sizes';
 
-    protected $fillable = ['product_id','size','stock'];
+    protected $fillable = [
+        'product_id',
+        'size',
+        'stock',
+    ];
 
     protected $casts = [
         'stock' => 'integer',
@@ -21,6 +25,4 @@ class ProductSize extends Model
     {
         return $this->belongsTo(Product::class);
     }
-
-    
 }

@@ -10,6 +10,38 @@ use Illuminate\Support\Facades\DB;
 class ProductController extends Controller
 {
 
+    private function deleteUploadImages(array $images, array $keptImages = []): void
+    {
+        $keptPaths = array_map(fn ($image) => $this->uploadPath($image), $keptImages);
+        foreach (array_unique($images) as $image) {
+            $path = $this->uploadPath($image);
+            if ($path && !in_array($path, $keptPaths, true) && is_file($path)) {
+                @unlink($path);
+            }
+        }
+    }
+
+    private function uploadPath(?string $image): ?string
+    {
+        if (!$image) {
+            return null;
+        }
+
+        $path = parse_url($image, PHP_URL_PATH) ?: $image;
+        $path = '/' . ltrim($path, '/');
+        if (!str_starts_with($path, '/uploads/')) {
+            return null;
+        }
+
+        $fullPath = realpath(public_path(ltrim($path, '/')));
+        $uploadsPath = realpath(public_path('uploads'));
+        if (!$fullPath || !$uploadsPath || !str_starts_with($fullPath, $uploadsPath . DIRECTORY_SEPARATOR)) {
+            return null;
+        }
+
+        return $fullPath;
+    }
+
     private function optimizeImage($file, $subfolder = 'products')
     {
         $mime = $file->getMimeType();
@@ -32,7 +64,7 @@ class ProductController extends Controller
 
         if (!$image) {
             $path = $file->store($subfolder, 'uploads');
-            return asset('uploads/' . $path);
+            return '/uploads/' . ltrim($path, '/');
         }
 
         $width = imagesx($image);
@@ -60,45 +92,46 @@ class ProductController extends Controller
         }
 
         imagedestroy($image);
-        return asset('uploads/' . $subfolder . '/' . $filename);
+        return '/uploads/' . $subfolder . '/' . $filename;
     }
 
 
     public function index(): JsonResponse
     {
-        return response()->json(Product::paginate(20));
+        return response()->json(
+            Product::with('brand:id,name', 'category:id,name,slug', 'subcategory:id,name')
+                ->paginate(20)
+        );
     }
 
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
+            'product_code' => 'nullable|string|max:100',
             'name' => 'required|string|max:255',
-            'category' => 'required|string|max:100',
-            'category_id' => 'nullable|integer|exists:categories,id',
-            'brand' => 'required|string|max:100',
+            'brand_id' => 'nullable|integer|exists:brands,id',
+            'category_id' => 'required|integer|exists:categories,id',
+            'subcategory_id' => 'nullable|integer|exists:subcategories,id',
             'price' => 'required|numeric|min:0.01',
             'discounted_price' => 'nullable|numeric|min:0',
             'stock' => 'required|integer|min:0',
             'size' => 'nullable|string|max:50',
             'color' => 'nullable|string|max:50',
             'material' => 'nullable|string|max:100',
-            'gender' => 'nullable|string|max:50',
             'rating' => 'required|numeric|min:0|max:5',
             'reviews' => 'required|integer|min:0',
             'img' => 'nullable',
             'img_file' => 'nullable|file|image|mimes:jpeg,png,jpg,gif,webp|max:20480',
             'new_images.*' => 'nullable|file|image|mimes:jpeg,png,jpg,gif,webp|max:20480',
             'description' => 'nullable|string|max:5000',
-            'discount' => 'nullable|string|max:50',
+            'discount' => 'nullable|numeric|min:0|max:100',
         ]);
 
-        if (empty($validated['discounted_price'])) {
-            $validated['discounted_price'] = null;
-        }
-
-        if (empty($validated['discount'])) {
-            $validated['discount'] = null;
-        }
+        $discount = (float) ($validated['discount'] ?? 0);
+        $validated['discounted_price'] = $discount > 0
+            ? round((float) $validated['price'] * (1 - min($discount, 100) / 100), 2)
+            : null;
+        $validated['discount'] = $discount > 0 ? (string) $discount : null;
 
         $imageUrls = [];
         if ($request->hasFile('new_images')) {
@@ -116,7 +149,7 @@ class ProductController extends Controller
         }
 
         try {
-            $fields = ['name', 'category', 'brand', 'size', 'color', 'material', 'gender', 'description', 'discount'];
+            $fields = ['name', 'size', 'color', 'material', 'description', 'discount'];
             foreach ($fields as $field) {
                 if (isset($validated[$field])) {
                     $validated[$field] = htmlspecialchars($validated[$field], ENT_QUOTES, 'UTF-8');
@@ -133,6 +166,7 @@ class ProductController extends Controller
 
     public function show(Product $product): JsonResponse
     {
+        $product->load('brand:id,name', 'category:id,name,slug', 'subcategory:id,name');
         return response()->json($product);
     }
 
@@ -140,24 +174,24 @@ class ProductController extends Controller
     public function update(Request $request, Product $product): JsonResponse
     {
         $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
+            'product_code' => 'nullable|string|max:100',
             'name' => 'nullable|string|max:255',
-            'category' => 'nullable|string|max:100',
+            'brand_id' => 'nullable|integer|exists:brands,id',
             'category_id' => 'nullable|integer|exists:categories,id',
-            'brand' => 'nullable|string|max:100',
+            'subcategory_id' => 'nullable|integer|exists:subcategories,id',
             'price' => 'nullable|numeric|min:0.01',
             'discounted_price' => 'nullable|numeric|min:0',
             'stock' => 'nullable|integer|min:0',
             'size' => 'nullable|string|max:50',
             'color' => 'nullable|string|max:50',
             'material' => 'nullable|string|max:100',
-            'gender' => 'nullable|string|max:50',
             'rating' => 'nullable|numeric|min:0|max:5',
             'reviews' => 'nullable|integer|min:0',
             'img' => 'nullable',
             'img_file' => 'sometimes|nullable|file|image|mimes:jpeg,png,jpg,webp|max:20480',
             'new_images.*' => 'sometimes|nullable|file|image|mimes:jpeg,png,jpg,webp|max:20480',
             'description' => 'nullable|string|max:5000',
-            'discount' => 'nullable|string|max:50',
+            'discount' => 'nullable|numeric|min:0|max:100',
         ]);
 
         if ($validator->fails()) {
@@ -166,12 +200,12 @@ class ProductController extends Controller
 
         $validated = $validator->validated();
 
-        if (!isset($validated['discounted_price']) || $validated['discounted_price'] === null || $validated['discounted_price'] == 0) {
-            $validated['discounted_price'] = null;
-        }
-        if (!isset($validated['discount']) || empty($validated['discount'])) {
-            $validated['discount'] = null;
-        }
+        $price = array_key_exists('price', $validated) ? (float) $validated['price'] : (float) $product->price;
+        $discount = array_key_exists('discount', $validated) ? (float) $validated['discount'] : (float) $product->discount;
+        $validated['discounted_price'] = $discount > 0
+            ? round($price * (1 - min($discount, 100) / 100), 2)
+            : null;
+        $validated['discount'] = $discount > 0 ? (string) $discount : null;
 
         $imageSlots = $request->input('image_slots');
         if (is_string($imageSlots)) {
@@ -218,7 +252,12 @@ class ProductController extends Controller
         unset($validated['img_file']);
 
         try {
-            $fields = ['name', 'category', 'brand', 'size', 'color', 'material', 'gender', 'description', 'discount'];
+            $previousImages = is_array($product->images) ? $product->images : [];
+            if ($product->img) {
+                $previousImages[] = $product->img;
+            }
+
+            $fields = ['name', 'size', 'color', 'material', 'description', 'discount'];
             foreach ($fields as $field) {
                 if (isset($validated[$field])) {
                     $validated[$field] = htmlspecialchars($validated[$field], ENT_QUOTES, 'UTF-8');
@@ -226,6 +265,7 @@ class ProductController extends Controller
             }
 
             $product->update($validated);
+            $this->deleteUploadImages($previousImages, $finalImages);
             $product->refresh();
             return response()->json($product);
         } catch (\Exception $e) {
@@ -235,6 +275,11 @@ class ProductController extends Controller
 
     public function destroy(Product $product): JsonResponse
     {
+        $images = is_array($product->images) ? $product->images : [];
+        if ($product->img) {
+            $images[] = $product->img;
+        }
+        $this->deleteUploadImages($images);
         $product->delete();
         return response()->json(null, 204);
     }
