@@ -15,12 +15,12 @@ class AuthController extends Controller
     public function register(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
+            'name' => ['required', 'string', 'max:255', 'regex:/^[\pL]+(?:[\s\'-][\pL]+)*$/u'],
             'email' => 'required|string|email:rfc,dns|max:255|unique:users|regex:/^[^@]+@[^@]+\.[^@]{2,}$/',
             'password' => 'required|string|min:6|regex:/[A-Z]/|regex:/[0-9]/|confirmed',
             'gender' => 'required|string',
             'birthdate' => 'required|date|before_or_equal:' . now()->subYears(18)->format('Y-m-d'),
-            'phone' => 'required|string|min:7|max:50',
+            'phone' => ['required', 'digits_between:7,20'],
         ], [
             'birthdate.before_or_equal' => 'Debes ser mayor de edad para registrarte.',
             'password.regex' => 'La contraseña debe tener mayúsculas y números.',

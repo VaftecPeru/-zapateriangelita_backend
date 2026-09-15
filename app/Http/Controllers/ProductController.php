@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Product;
+use App\Models\ProductColor;
+use App\Models\ProductSize;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -19,6 +21,22 @@ class ProductController extends Controller
                 @unlink($path);
             }
         }
+    }
+
+    private function flattenImageValues(?array $images): array
+    {
+        if (!$images) {
+            return [];
+        }
+
+        $result = [];
+        array_walk_recursive($images, function ($image) use (&$result) {
+            if (is_string($image) && $image !== '') {
+                $result[] = $image;
+            }
+        });
+
+        return $result;
     }
 
     private function uploadPath(?string $image): ?string
@@ -95,11 +113,104 @@ class ProductController extends Controller
         return '/uploads/' . $subfolder . '/' . $filename;
     }
 
+    private function syncVariants(Product $product): void
+    {
+        $product->sizes()->delete();
+        $product->colors()->delete();
+
+        $sizes = collect(preg_split('/[,|]+/', (string) $product->size))
+            ->map(fn ($size) => trim($size))
+            ->filter(fn ($size) => $size !== '' && strlen($size) <= 10)
+            ->unique();
+
+        foreach ($sizes as $size) {
+            ProductSize::create([
+                'product_id' => $product->id,
+                'size' => $size,
+                'stock' => (int) $product->stock,
+            ]);
+        }
+
+        $hexByColor = [
+            'blanco' => '#ffffff', 'negro' => '#111111', 'rojo' => '#d62828',
+            'azul' => '#2563eb', 'verde' => '#2e8b57', 'amarillo' => '#facc15',
+            'rosa' => '#f472b6', 'morado' => '#7c3aed', 'gris' => '#9ca3af',
+            'cafe' => '#8b5e3c', 'marron' => '#8b5e3c', 'beige' => '#d6c2a1',
+        ];
+        $colors = collect(preg_split('/[,\/|]+/', (string) $product->color))
+            ->map(fn ($color) => trim($color))
+            ->filter()
+            ->unique();
+
+        foreach ($colors as $color) {
+            $normalized = mb_strtolower($color);
+            ProductColor::create([
+                'product_id' => $product->id,
+                'color' => $color,
+                'hex' => $hexByColor[$normalized] ?? (str_starts_with($color, '#') ? $color : '#888888'),
+            ]);
+        }
+    }
+
+    private function processColorImages(Request $request, array $colors, ?array $existing = null): ?array
+    {
+        $uploaded = $request->file('color_images', []);
+        $existing = $existing ?? [];
+        $result = [];
+
+        foreach ($colors as $index => $color) {
+            $files = $uploaded[$index] ?? [];
+            $files = is_array($files) ? array_slice($files, 0, 5) : [];
+            if (!$files && !empty($existing[$color])) {
+                $result[$color] = array_slice($existing[$color], 0, 5);
+                continue;
+            }
+
+            if ($files) {
+                $result[$color] = array_map(fn ($file) => $this->optimizeImage($file), $files);
+            }
+        }
+
+        return $result ?: null;
+    }
+
+    private function normalizeColorSizes(?string $value): ?array
+    {
+        if (!$value) {
+            return null;
+        }
+
+        $decoded = json_decode($value, true);
+        if (!is_array($decoded)) {
+            return null;
+        }
+
+        $result = [];
+        foreach ($decoded as $color => $sizes) {
+            if (!is_string($color) || !is_array($sizes)) {
+                continue;
+            }
+
+            $normalizedSizes = collect($sizes)
+                ->map(fn ($size) => trim((string) $size))
+                ->filter(fn ($size) => $size !== '' && strlen($size) <= 10)
+                ->unique()
+                ->values()
+                ->all();
+
+            if ($normalizedSizes) {
+                $result[trim($color)] = $normalizedSizes;
+            }
+        }
+
+        return $result ?: null;
+    }
+
 
     public function index(): JsonResponse
     {
         return response()->json(
-            Product::with('brand:id,name', 'category:id,name,slug', 'subcategory:id,name')
+            Product::with('brand:id,name', 'category:id,name,slug', 'subcategory:id,name', 'sizes', 'colors')
                 ->paginate(20)
         );
     }
@@ -125,6 +236,8 @@ class ProductController extends Controller
             'new_images.*' => 'nullable|file|image|mimes:jpeg,png,jpg,gif,webp|max:20480',
             'description' => 'nullable|string|max:5000',
             'discount' => 'nullable|numeric|min:0|max:100',
+            'status' => 'required|in:normal,oferta,nuevo',
+            'color_sizes' => 'nullable|json',
         ]);
 
         $discount = (float) ($validated['discount'] ?? 0);
@@ -132,6 +245,15 @@ class ProductController extends Controller
             ? round((float) $validated['price'] * (1 - min($discount, 100) / 100), 2)
             : null;
         $validated['discount'] = $discount > 0 ? (string) $discount : null;
+
+        $colors = collect(preg_split('/[,\/|]+/', (string) ($validated['color'] ?? '')))
+            ->map(fn ($color) => trim($color))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+        $validated['color_images'] = $this->processColorImages($request, $colors);
+        $validated['color_sizes'] = $this->normalizeColorSizes($request->input('color_sizes'));
 
         $imageUrls = [];
         if ($request->hasFile('new_images')) {
@@ -156,7 +278,11 @@ class ProductController extends Controller
                 }
             }
 
-            $product = Product::create($validated);
+            DB::transaction(function () use (&$product, $validated) {
+                $product = Product::create($validated);
+                $this->syncVariants($product);
+            });
+            $product->load('sizes', 'colors');
             return response()->json($product, 201);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Error al crear el producto: ' . $e->getMessage()], 500);
@@ -166,7 +292,7 @@ class ProductController extends Controller
 
     public function show(Product $product): JsonResponse
     {
-        $product->load('brand:id,name', 'category:id,name,slug', 'subcategory:id,name');
+        $product->load('brand:id,name', 'category:id,name,slug', 'subcategory:id,name', 'sizes', 'colors');
         return response()->json($product);
     }
 
@@ -192,6 +318,9 @@ class ProductController extends Controller
             'new_images.*' => 'sometimes|nullable|file|image|mimes:jpeg,png,jpg,webp|max:20480',
             'description' => 'nullable|string|max:5000',
             'discount' => 'nullable|numeric|min:0|max:100',
+            'status' => 'sometimes|in:normal,oferta,nuevo',
+            'color_images' => 'sometimes|array',
+            'color_sizes' => 'sometimes|json',
         ]);
 
         if ($validator->fails()) {
@@ -206,6 +335,15 @@ class ProductController extends Controller
             ? round($price * (1 - min($discount, 100) / 100), 2)
             : null;
         $validated['discount'] = $discount > 0 ? (string) $discount : null;
+
+        $colors = collect(preg_split('/[,\/|]+/', (string) ($validated['color'] ?? $product->color)))
+            ->map(fn ($color) => trim($color))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+        $validated['color_images'] = $this->processColorImages($request, $colors, $product->color_images);
+        $validated['color_sizes'] = $this->normalizeColorSizes($request->input('color_sizes')) ?? $product->color_sizes;
 
         $imageSlots = $request->input('image_slots');
         if (is_string($imageSlots)) {
@@ -256,6 +394,8 @@ class ProductController extends Controller
             if ($product->img) {
                 $previousImages[] = $product->img;
             }
+            $previousColorImages = $this->flattenImageValues($product->color_images);
+            $keptImages = array_merge($finalImages, $this->flattenImageValues($validated['color_images'] ?? null));
 
             $fields = ['name', 'size', 'color', 'material', 'description', 'discount'];
             foreach ($fields as $field) {
@@ -264,9 +404,13 @@ class ProductController extends Controller
                 }
             }
 
-            $product->update($validated);
-            $this->deleteUploadImages($previousImages, $finalImages);
+            DB::transaction(function () use ($product, $validated) {
+                $product->update($validated);
+                $this->syncVariants($product->fresh());
+            });
+            $this->deleteUploadImages(array_merge($previousImages, $previousColorImages), $keptImages);
             $product->refresh();
+            $product->load('sizes', 'colors');
             return response()->json($product);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Error al actualizar el producto: ' . $e->getMessage()], 500);
@@ -279,6 +423,7 @@ class ProductController extends Controller
         if ($product->img) {
             $images[] = $product->img;
         }
+        $images = array_merge($images, $this->flattenImageValues($product->color_images));
         $this->deleteUploadImages($images);
         $product->delete();
         return response()->json(null, 204);

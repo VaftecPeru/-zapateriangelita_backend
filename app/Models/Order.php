@@ -29,6 +29,7 @@ class Order extends Model
         'shipping_postal_code',
         'shipping_phone',
         'customer_name',
+        'customer_email',
         'notes',
     ];
 

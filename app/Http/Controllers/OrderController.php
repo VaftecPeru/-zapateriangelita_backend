@@ -45,6 +45,7 @@ class OrderController extends Controller
             'shipping_postal_code' => 'nullable|string|max:20',
             'shipping_phone' => 'nullable|string|max:20',
             'payment_method' => 'nullable|string|max:50',
+            'customer_email' => 'nullable|email|max:255',
             'notes' => 'nullable|string|max:2000',
         ]);
 
@@ -70,6 +71,14 @@ foreach ($validated['items'] as $item) {
 
                 // Validar stock por talla si se especificó
                 if (!empty($item['size'])) {
+                    $colorSizes = $product->color_sizes ?? [];
+                    if (!empty($item['color']) && !empty($colorSizes[$item['color']]) && !in_array($item['size'], $colorSizes[$item['color']], true)) {
+                        DB::rollBack();
+                        return response()->json([
+                            'error' => "La talla '{$item['size']}' no está disponible para el color '{$item['color']}'."
+                        ], 422);
+                    }
+
                     $productSize = $product->sizes->firstWhere('size', $item['size']);
                     if (!$productSize) {
                         DB::rollBack();
@@ -123,13 +132,9 @@ foreach ($validated['items'] as $item) {
             $code = $this->generateOrderCode();
 
             $order = Order::create([
-<<<<<<< HEAD
                 'user_id' => $user?->id,
-=======
-                'user_id' => $user->id,
->>>>>>> develop
                 'code' => $code,
-                'status' => 'pending',
+                'status' => 'sin_preparar',
                 'subtotal' => round($subtotal, 2),
                 'discount' => round($discount, 2),
                 'shipping_cost' => round($shippingCost, 2),
@@ -142,11 +147,8 @@ foreach ($validated['items'] as $item) {
                 'shipping_municipality' => $validated['shipping_municipality'] ?? null,
                 'shipping_postal_code' => $validated['shipping_postal_code'] ?? null,
                 'shipping_phone' => $validated['shipping_phone'] ?? null,
-<<<<<<< HEAD
                 'customer_name' => $validated['customer_name'] ?? $user?->name,
-=======
-                'customer_name' => $validated['customer_name'] ?? $user->name,
->>>>>>> develop
+                'customer_email' => $validated['customer_email'] ?? $user?->email,
                 'notes' => $validated['notes'] ?? null,
             ]);
 
@@ -182,6 +184,17 @@ foreach ($validated['items'] as $item) {
             ], 500);
         }
     }
+
+    public function updateEmail(Request $request, Order $order): JsonResponse
+    {
+        $validated = $request->validate([
+            'customer_email' => 'required|email|max:255',
+        ]);
+
+        $order->update(['customer_email' => $validated['customer_email']]);
+
+        return response()->json($order);
+    }
 /**
      * Pedidos del usuario autenticado
      * GET /api/my-orders
@@ -199,7 +212,7 @@ foreach ($validated['items'] as $item) {
     /**
      * Listar todos los pedidos (admin)
      * GET /api/orders
-     * GET /api/orders?status=pending
+    * GET /api/orders?status=sin_preparar
      */
     public function index(Request $request): JsonResponse
     {
@@ -229,7 +242,7 @@ foreach ($validated['items'] as $item) {
     public function updateStatus(Request $request, Order $order): JsonResponse
     {
         $validated = $request->validate([
-            'status' => 'required|in:pending,confirmed,shipped,delivered,cancelled',
+            'status' => 'required|in:sin_preparar,preparado,enviado,entregado,cancelado',
         ]);
 
         $order->update(['status' => $validated['status']]);

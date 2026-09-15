@@ -25,8 +25,11 @@ class Product extends Model
         'reviews',
         'img',
         'images',
+        'color_images',
+        'color_sizes',
         'description',
         'discount',
+        'status',
         'category_id',
         'subcategory_id',
     ];
@@ -38,6 +41,8 @@ class Product extends Model
         'rating' => 'float',
         'reviews' => 'integer',
         'images' => 'array',
+        'color_images' => 'array',
+        'color_sizes' => 'array',
     ];
 
     
@@ -135,14 +140,5 @@ class Product extends Model
             return null;
         }
         return 'S/ ' . number_format($this->discounted_price, 2);
-    }
-    public function sizes()
-    {
-        return $this->hasMany(ProductSize::class, 'product_id');
-    }
-
-    public function colors()
-    {
-        return $this->hasMany(ProductColor::class, 'product_id');
     }
 }
