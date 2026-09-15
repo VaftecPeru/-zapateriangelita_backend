@@ -40,6 +40,23 @@ class Order extends Model
         'total' => 'decimal:2',
     ];
 
+    /**
+     * Mantiene compatibilidad con estados históricos en inglés mientras
+     * el flujo actual de pedidos trabaja con estados en español.
+     */
+    public function setStatusAttribute($value): void
+    {
+        $statusMap = [
+            'pending' => 'sin_preparar',
+            'confirmed' => 'preparado',
+            'shipped' => 'enviado',
+            'delivered' => 'entregado',
+            'cancelled' => 'cancelado',
+        ];
+
+        $this->attributes['status'] = $statusMap[$value] ?? $value;
+    }
+
     public function user()
     {
         return $this->belongsTo(User::class);
