@@ -134,7 +134,7 @@ foreach ($validated['items'] as $item) {
             $order = Order::create([
                 'user_id' => $user?->id,
                 'code' => $code,
-                'status' => 'pending',
+                'status' => 'sin_preparar',
                 'subtotal' => round($subtotal, 2),
                 'discount' => round($discount, 2),
                 'shipping_cost' => round($shippingCost, 2),
@@ -212,7 +212,7 @@ foreach ($validated['items'] as $item) {
     /**
      * Listar todos los pedidos (admin)
      * GET /api/orders
-     * GET /api/orders?status=pending
+    * GET /api/orders?status=sin_preparar
      */
     public function index(Request $request): JsonResponse
     {
@@ -242,7 +242,7 @@ foreach ($validated['items'] as $item) {
     public function updateStatus(Request $request, Order $order): JsonResponse
     {
         $validated = $request->validate([
-            'status' => 'required|in:pending,confirmed,shipped,delivered,cancelled',
+            'status' => 'required|in:sin_preparar,preparado,enviado,entregado,cancelado',
         ]);
 
         $order->update(['status' => $validated['status']]);

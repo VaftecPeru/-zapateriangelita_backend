@@ -14,7 +14,7 @@ return new class extends Migration {
                 ->constrained('users')
                 ->onDelete('set null');
             $table->string('code', 20)->unique();
-            $table->string('status', 30)->default('pending'); // pending | confirmed | shipped | delivered | cancelled
+            $table->string('status', 30)->default('sin_preparar'); // sin_preparar | preparado | enviado | entregado | cancelado
             $table->decimal('subtotal', 10, 2)->default(0);
             $table->decimal('discount', 10, 2)->default(0);
             $table->decimal('shipping_cost', 10, 2)->default(0);
