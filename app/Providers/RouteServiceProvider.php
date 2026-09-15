@@ -11,11 +11,10 @@ use Illuminate\Support\Facades\Route;
 class RouteServiceProvider extends ServiceProvider
 {
     /**
-    * @var string
+     * @var string
      */
     public const HOME = '/home';
 
-   
     public function boot(): void
     {
         RateLimiter::for('api', function (Request $request) {
@@ -26,6 +25,10 @@ class RouteServiceProvider extends ServiceProvider
             Route::middleware('api')
                 ->prefix('api')
                 ->group(base_path('routes/api.php'));
+
+            Route::middleware('api')
+                ->prefix('api')
+                ->group(base_path('routes/catalog.php'));
 
             Route::middleware('web')
                 ->group(base_path('routes/web.php'));
