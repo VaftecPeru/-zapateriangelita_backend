@@ -122,7 +122,7 @@ class OpenpayController extends Controller
                 'phone_number' => $order->shipping_phone ?: '0000000000',
                 'email' => $user->email,
             ],
-        ];
+        ]; 
 
         try {
             // Reserva atómica antes de enviar el cargo. Un timeout conserva
