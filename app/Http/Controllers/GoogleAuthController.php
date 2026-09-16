@@ -3,11 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class GoogleAuthController extends Controller
 {
@@ -52,6 +54,7 @@ class GoogleAuthController extends Controller
 
         $googleSub = (string) $claims['sub'];
         $email = strtolower(trim((string) $claims['email']));
+        $accountCreated = false;
 
         $user = User::where('google_sub', $googleSub)->first();
 
@@ -59,38 +62,65 @@ class GoogleAuthController extends Controller
             $user = User::whereRaw('LOWER(email) = ?', [$email])->first();
 
             if (!$user) {
-                return response()->json([
-                    'message' => 'No existe una cuenta de cliente asociada a este correo. Completa una compra o regístrate primero.',
-                    'error_code' => 'GOOGLE_ACCOUNT_NOT_REGISTERED',
-                ], 404);
+                $user = new User();
+                $user->name = $this->googleDisplayName($claims, $email);
+                $user->email = $email;
+                $user->password = Str::random(64);
+                $user->role = 'user';
+                $user->google_sub = $googleSub;
+                $user->google_email = $email;
+                $user->google_linked_at = now();
+                $user->email_verified_at = now();
+
+                try {
+                    $user->save();
+                    $accountCreated = true;
+                } catch (QueryException $e) {
+                    // Protege contra dos intentos simultáneos de alta con el mismo correo/sub.
+                    Log::warning('GOOGLE_QUICK_REGISTER_RACE', [
+                        'email' => $email,
+                        'sql_state' => $e->errorInfo[0] ?? null,
+                    ]);
+
+                    $user = User::where('google_sub', $googleSub)->first()
+                        ?: User::whereRaw('LOWER(email) = ?', [$email])->first();
+
+                    if (!$user) {
+                        throw $e;
+                    }
+                }
             }
 
-            if ($user->google_sub && !hash_equals((string) $user->google_sub, $googleSub)) {
-                return response()->json([
-                    'message' => 'Esta cuenta ya está vinculada con otra identidad de Google.',
-                    'error_code' => 'GOOGLE_ACCOUNT_CONFLICT',
-                ], 409);
-            }
+            if (!$accountCreated) {
+                if ($user->google_sub && !hash_equals((string) $user->google_sub, $googleSub)) {
+                    return response()->json([
+                        'message' => 'Esta cuenta ya está vinculada con otra identidad de Google.',
+                        'error_code' => 'GOOGLE_ACCOUNT_CONFLICT',
+                    ], 409);
+                }
 
-            if (($user->role ?? 'user') === 'admin') {
-                return response()->json([
-                    'message' => 'Por seguridad, una cuenta administrativa debe vincular Google desde una sesión ya autenticada.',
-                    'error_code' => 'GOOGLE_ADMIN_LINK_REQUIRED',
-                ], 409);
-            }
+                if (($user->role ?? 'user') === 'admin') {
+                    return response()->json([
+                        'message' => 'Por seguridad, una cuenta administrativa debe vincular Google desde una sesión ya autenticada.',
+                        'error_code' => 'GOOGLE_ADMIN_LINK_REQUIRED',
+                    ], 409);
+                }
 
-            if (!$this->isGoogleAuthoritativeForEmail($claims)) {
-                return response()->json([
-                    'message' => 'Primero inicia sesión con tu contraseña y vincula Google desde tu cuenta.',
-                    'error_code' => 'GOOGLE_EXISTING_LOGIN_REQUIRED',
-                ], 409);
-            }
+                // Para cuentas existentes solo se auto-vincula cuando Google es autoridad del correo.
+                // Así se evita apropiarse de una cuenta local preexistente mediante un correo externo.
+                if (!$user->google_sub && !$this->isGoogleAuthoritativeForEmail($claims)) {
+                    return response()->json([
+                        'message' => 'Primero inicia sesión con tu contraseña y vincula Google desde tu cuenta.',
+                        'error_code' => 'GOOGLE_EXISTING_LOGIN_REQUIRED',
+                    ], 409);
+                }
 
-            $user->google_sub = $googleSub;
-            $user->google_email = $email;
-            $user->google_linked_at = now();
-            $user->email_verified_at = $user->email_verified_at ?: now();
-            $user->save();
+                $user->google_sub = $googleSub;
+                $user->google_email = $email;
+                $user->google_linked_at = $user->google_linked_at ?: now();
+                $user->email_verified_at = $user->email_verified_at ?: now();
+                $user->save();
+            }
         } else {
             $user->google_email = $email;
             $user->google_linked_at = $user->google_linked_at ?: now();
@@ -98,7 +128,7 @@ class GoogleAuthController extends Controller
             $user->save();
         }
 
-        return $this->issueSession($user);
+        return $this->issueSession($user, $accountCreated);
     }
 
     public function link(Request $request): JsonResponse
@@ -173,7 +203,7 @@ class GoogleAuthController extends Controller
         ]);
     }
 
-    private function issueSession(User $user): JsonResponse
+    private function issueSession(User $user, bool $accountCreated = false): JsonResponse
     {
         $token = $user->createToken('google_login')->plainTextToken;
 
@@ -183,6 +213,8 @@ class GoogleAuthController extends Controller
                 'token_type' => 'Bearer',
                 'user' => $user->fresh(),
                 'google_linked' => true,
+                'account_created' => $accountCreated,
+                'registration_method' => $accountCreated ? 'google' : null,
             ])
             ->cookie(
                 'sanctum_token',
@@ -195,6 +227,19 @@ class GoogleAuthController extends Controller
                 false,
                 'lax'
             );
+    }
+
+    private function googleDisplayName(array $claims, string $email): string
+    {
+        $name = trim((string) ($claims['name'] ?? ''));
+        if ($name !== '') {
+            return Str::limit($name, 255, '');
+        }
+
+        $localPart = Str::before($email, '@');
+        $localPart = preg_replace('/[._-]+/', ' ', $localPart) ?: 'Cliente';
+
+        return Str::limit(Str::title(trim($localPart)), 255, '');
     }
 
     private function isConfigured(): bool
