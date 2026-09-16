@@ -19,17 +19,22 @@ class User extends Authenticatable
         'birthdate',
         'role',
         'phone',
+        'google_sub',
+        'google_email',
+        'google_linked_at',
     ];
 
     protected $hidden = [
         'password',
         'remember_token',
+        'google_sub',
     ];
 
     protected $casts = [
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
         'birthdate' => 'date',
+        'google_linked_at' => 'datetime',
     ];
 
     // ============================================
