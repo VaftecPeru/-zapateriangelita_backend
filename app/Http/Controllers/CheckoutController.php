@@ -660,6 +660,10 @@ class CheckoutController extends Controller
 
         $result = DB::transaction(function () use ($order, $guestCheckout, &$createdUser, &$temporaryPassword) {
             $lockedOrder = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+            // Si el pedido ya quedó vinculado a un usuario en una verificación previa,
+            // podemos reemitir una sesión de forma segura e idempotente. Esto cubre
+            // retornos/reintentos de 3D Secure después de que Openpay ya confirmó el pago.
+            $userWasAlreadyLinked = !empty($lockedOrder->user_id);
             $user = $lockedOrder->user_id ? User::find($lockedOrder->user_id) : null;
 
             if (!$user && $guestCheckout) {
@@ -703,11 +707,11 @@ class CheckoutController extends Controller
                 ]);
             }
 
-            return [$lockedOrder->fresh('items'), $user];
+            return [$lockedOrder->fresh('items'), $user, $userWasAlreadyLinked];
         });
 
         /** @var Order $paidOrder */
-        [$paidOrder, $user] = $result;
+        [$paidOrder, $user, $userWasAlreadyLinked] = $result;
 
         $response = [
             'account_created' => false,
@@ -732,9 +736,21 @@ class CheckoutController extends Controller
             return $response;
         }
 
+        if ($guestCheckout && $user && $userWasAlreadyLinked) {
+            // El checkout_token ya fue validado contra este pedido y el pedido ya
+            // pertenece a este usuario. Reemitimos el token para que un retorno o
+            // reintento de verificación 3D Secure siga terminando en Mis Compras
+            // con el cliente autenticado, sin generar otra cuenta ni otra compra.
+            $response['auth_token'] = $user->createToken('checkout_auto_login')->plainTextToken;
+            $response['user'] = $user;
+            $response['auto_login_reissued'] = true;
+            return $response;
+        }
+
         if ($guestCheckout && $user) {
-            // Si la cuenta ya existía por una condición de carrera, no emitimos
-            // sesión automática para evitar apropiación de una cuenta ajena.
+            // Si la cuenta apareció entre la creación del pedido y el pago por una
+            // condición de carrera y aún no estaba vinculada al pedido, exigimos
+            // login para no entregar acceso a una cuenta ajena.
             $response['requires_login'] = true;
         }
 
