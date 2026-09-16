@@ -1,0 +1,62 @@
+name: Fix checkout auto login idempotent
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-checkout-auto-login-idempotent.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Corregir auto-login idempotente después de 3D Secure
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('app/Http/Controllers/CheckoutController.php')
+          text = path.read_text()
+
+          old1 = """            $lockedOrder = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();\n            $user = $lockedOrder->user_id ? User::find($lockedOrder->user_id) : null;\n\n            if (!$user && $guestCheckout) {"""
+          new1 = """            $lockedOrder = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();\n            // Si el pedido ya quedó vinculado a un usuario en una verificación previa,\n            // podemos reemitir una sesión de forma segura e idempotente. Esto cubre\n            // retornos/reintentos de 3D Secure después de que Openpay ya confirmó el pago.\n            $userWasAlreadyLinked = !empty($lockedOrder->user_id);\n            $user = $lockedOrder->user_id ? User::find($lockedOrder->user_id) : null;\n\n            if (!$user && $guestCheckout) {"""
+          if old1 not in text:
+              raise SystemExit('No se encontró bloque 1 esperado')
+          text = text.replace(old1, new1, 1)
+
+          old2 = """            return [$lockedOrder->fresh('items'), $user];\n        });\n\n        /** @var Order $paidOrder */\n        [$paidOrder, $user] = $result;"""
+          new2 = """            return [$lockedOrder->fresh('items'), $user, $userWasAlreadyLinked];\n        });\n\n        /** @var Order $paidOrder */\n        [$paidOrder, $user, $userWasAlreadyLinked] = $result;"""
+          if old2 not in text:
+              raise SystemExit('No se encontró bloque 2 esperado')
+          text = text.replace(old2, new2, 1)
+
+          old3 = """        if ($guestCheckout && $user) {\n            // Si la cuenta ya existía por una condición de carrera, no emitimos\n            // sesión automática para evitar apropiación de una cuenta ajena.\n            $response['requires_login'] = true;\n        }\n\n        return $response;"""
+          new3 = """        if ($guestCheckout && $user && $userWasAlreadyLinked) {\n            // El checkout_token ya fue validado contra este pedido y el pedido ya\n            // pertenece a este usuario. Reemitimos el token para que un retorno o\n            // reintento de verificación 3D Secure siga terminando en Mis Compras\n            // con el cliente autenticado, sin generar otra cuenta ni otra compra.\n            $response['auth_token'] = $user->createToken('checkout_auto_login')->plainTextToken;\n            $response['user'] = $user;\n            $response['auto_login_reissued'] = true;\n            return $response;\n        }\n\n        if ($guestCheckout && $user) {\n            // Si la cuenta apareció entre la creación del pedido y el pago por una\n            // condición de carrera y aún no estaba vinculada al pedido, exigimos\n            // login para no entregar acceso a una cuenta ajena.\n            $response['requires_login'] = true;\n        }\n\n        return $response;"""
+          if old3 not in text:
+              raise SystemExit('No se encontró bloque 3 esperado')
+          text = text.replace(old3, new3, 1)
+
+          path.write_text(text)
+      - name: Validar sintaxis PHP
+        run: php -l app/Http/Controllers/CheckoutController.php
+      - name: Validar rutas críticas del flujo
+        shell: bash
+        run: |
+          grep -q "auto_login_reissued" app/Http/Controllers/CheckoutController.php
+          grep -q "checkout_auto_login" app/Http/Controllers/CheckoutController.php
+          grep -q "completePaidOrder" app/Http/Controllers/CheckoutController.php
+      - name: Guardar corrección en main
+        shell: bash
+        run: |
+          git config user.name "VaftecPeru"
+          git config user.email "vaftecperusac@gmail.com"
+          git add app/Http/Controllers/CheckoutController.php
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: mantener auto-login tras verificación 3DS repetida"
+          git push origin main
