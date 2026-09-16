@@ -1,0 +1,79 @@
+name: Fix checkout mail status
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+      - name: Corregir indicador de correo
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('app/Http/Controllers/CheckoutController.php')
+          s = p.read_text(encoding='utf-8')
+          old = '''        if ($createdUser && $user && $temporaryPassword) {
+            try {
+                Mail::to($user->email)->send(new UserCredentialsMail($user, $temporaryPassword, $paidOrder));
+            } catch (\\Throwable $e) {
+                Log::error('CHECKOUT_CREDENTIAL_EMAIL_FAILED', [
+                    'order_id' => $paidOrder->id,
+                    'user_id' => $user->id,
+                    'exception' => get_class($e),
+                ]);
+            }
+
+            $response['account_created'] = true;
+            $response['auth_token'] = $user->createToken('checkout_auto_login')->plainTextToken;
+            $response['user'] = $user;
+            $response['credentials_sent'] = true;
+            return $response;
+        }'''
+          new = '''        if ($createdUser && $user && $temporaryPassword) {
+            $credentialsSent = false;
+            try {
+                Mail::to($user->email)->send(new UserCredentialsMail($user, $temporaryPassword, $paidOrder));
+                $credentialsSent = true;
+            } catch (\\Throwable $e) {
+                Log::error('CHECKOUT_CREDENTIAL_EMAIL_FAILED', [
+                    'order_id' => $paidOrder->id,
+                    'user_id' => $user->id,
+                    'exception' => get_class($e),
+                ]);
+            }
+
+            $response['account_created'] = true;
+            $response['auth_token'] = $user->createToken('checkout_auto_login')->plainTextToken;
+            $response['user'] = $user;
+            $response['credentials_sent'] = $credentialsSent;
+            return $response;
+        }'''
+          if old in s:
+              p.write_text(s.replace(old, new, 1), encoding='utf-8')
+          else:
+              print('La corrección ya está aplicada o el bloque cambió')
+          PY
+      - run: php -l app/Http/Controllers/CheckoutController.php
+      - name: Guardar corrección
+        run: |
+          git config user.name "VaftecPeru"
+          git config user.email "vaftecperusac@gmail.com"
+          git add app/Http/Controllers/CheckoutController.php
+          if git diff --cached --quiet; then
+            echo "No hay cambios"
+          else
+            git commit -m "fix: reportar correctamente envío de credenciales"
+            git push origin HEAD:main
+          fi
