@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\LeadController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SettingController;
@@ -27,6 +28,13 @@ Route::middleware('throttle:60,1')
 
 Route::middleware('throttle:60,1')
     ->post('/login', [AuthController::class, 'login']);
+
+// Google Identity Services. El client_id es público y se entrega al frontend en tiempo de ejecución.
+Route::middleware('throttle:60,1')
+    ->get('/auth/google/config', [GoogleAuthController::class, 'config']);
+
+Route::middleware('throttle:20,1')
+    ->post('/auth/google/login', [GoogleAuthController::class, 'login']);
 
 Route::middleware('throttle:10,1')
     ->post('/forgot-password', [AuthController::class, 'forgotPassword']);
@@ -107,6 +115,10 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::post('/logout', [AuthController::class, 'logout']);
+
+    // Vinculación explícita de Google desde una sesión ya autenticada.
+    Route::middleware('throttle:20,1')
+        ->post('/auth/google/link', [GoogleAuthController::class, 'link']);
 
     Route::get('/my-bookings', [LeadController::class, 'clientLeads']);
 
