@@ -37,7 +37,7 @@
                 </p>
 
                 <div style="text-align:center;margin:28px 0 12px;">
-                    <a href="{{ rtrim(env('FRONTEND_URL', 'http://localhost:5173'), '/') }}/login" style="display:inline-block;background:#e30613;color:#fff;text-decoration:none;padding:14px 26px;border-radius:8px;font-weight:800;">Ver mi compra</a>
+                    <a href="{{ rtrim(env('FRONTEND_URL', 'http://localhost:5173'), '/') }}/profile/purchases" style="display:inline-block;background:#e30613;color:#fff;text-decoration:none;padding:14px 26px;border-radius:8px;font-weight:800;">Ver mi compra</a>
                 </div>
             </div>
 
