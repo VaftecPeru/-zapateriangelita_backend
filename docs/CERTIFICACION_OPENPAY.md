@@ -12,9 +12,11 @@ OPENPAY_SANDBOX=true
 OPENPAY_MERCHANT_ID=<merchant_id_sandbox>
 OPENPAY_PUBLIC_KEY=<pk_sandbox>
 OPENPAY_PRIVATE_KEY=<sk_sandbox>
-OPENPAY_CURRENCY=MXN
+OPENPAY_CURRENCY=<moneda_habilitada_en_la_cuenta>
 OPENPAY_REDIRECT_URL=https://zapateriangelita.com/checkout
 ```
+
+La moneda debe coincidir con la habilitada por Openpay y con los importes que muestra la tienda. No cambiar de USD a MXN (o viceversa) únicamente para la certificación sin validar primero la cuenta y los precios del comercio.
 
 No compartir ni almacenar la llave privada en frontend, GitHub, JavaScript o HTML.
 
@@ -67,6 +69,7 @@ Si estos métodos se habilitan antes de la cita, deberán agregarse sus pruebas 
 10. Confirmar que el botón de pago queda deshabilitado mientras la operación está procesándose.
 11. Probar el flujo 3D Secure y el retorno seguro a `/checkout`.
 12. Revisar que no aparezca PAN completo, CVV ni llave privada en logs, Network de la aplicación o respuestas del backend.
+13. Confirmar que el formulario utiliza los recursos gráficos oficiales de Openpay y de las marcas de tarjetas aceptadas entregados por Openpay.
 
 ## 5. Cambio a producción después de aprobación
 
@@ -78,7 +81,7 @@ OPENPAY_SANDBOX=false
 OPENPAY_MERCHANT_ID=<merchant_id_produccion>
 OPENPAY_PUBLIC_KEY=<pk_produccion>
 OPENPAY_PRIVATE_KEY=<sk_produccion>
-OPENPAY_CURRENCY=MXN
+OPENPAY_CURRENCY=<moneda_habilitada_en_la_cuenta>
 OPENPAY_REDIRECT_URL=https://zapateriangelita.com/checkout
 ```
 
@@ -89,4 +92,4 @@ php artisan optimize:clear
 php artisan config:cache
 ```
 
-Antes de realizar cargos reales, verificar que la llave pública y la privada pertenezcan al mismo Merchant ID de producción.
+Antes de realizar cargos reales, verificar que la llave pública y la privada pertenezcan al mismo Merchant ID de producción y que la moneda coincida con la configuración aprobada por Openpay.
