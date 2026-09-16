@@ -21,16 +21,17 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
 
           p = Path('app/Http/Controllers/CheckoutController.php')
           s = p.read_text()
+          start_marker = "        if ($createdUser && $user && $temporaryPassword) {"
+          end_marker = "        if ($guestCheckout && $user && $userWasAlreadyLinked) {"
+          start = s.find(start_marker)
+          end = s.find(end_marker, start + 1)
+          if start < 0 or end < 0:
+              raise SystemExit(f'payment mail block markers not found: {start}, {end}')
 
-          pattern = re.compile(
-              r"        if \(\$createdUser && \$user && \$temporaryPassword\) \{.*?        \}\n\n        if \(\$guestCheckout && \$user && \$userWasAlreadyLinked\) \{",
-              re.S,
-          )
-          replacement = '''        if ($createdUser && $user && $temporaryPassword) {
+          replacement = r'''        if ($createdUser && $user && $temporaryPassword) {
             // El auto-login no debe esperar al servidor SMTP. Entregamos la
             // sesión inmediatamente y enviamos las credenciales al terminar la
             // respuesta HTTP para que el cliente llegue a Mis Compras sin bloqueo.
@@ -48,7 +49,7 @@ jobs:
                     Mail::to($mailUser->email)->send(
                         new UserCredentialsMail($mailUser, $mailPassword, $mailOrder)
                     );
-                } catch (\\Throwable $e) {
+                } catch (\Throwable $e) {
                     Log::error('CHECKOUT_CREDENTIAL_EMAIL_FAILED', [
                         'order_id' => $mailOrder->id,
                         'user_id' => $mailUser->id,
@@ -60,11 +61,8 @@ jobs:
             return $response;
         }
 
-        if ($guestCheckout && $user && $userWasAlreadyLinked) {'''
-          s2, count = pattern.subn(replacement, s, count=1)
-          if count != 1:
-              raise SystemExit(f'expected one mail block, found {count}')
-          p.write_text(s2)
+'''
+          p.write_text(s[:start] + replacement + s[end:])
 
           r = Path('routes/api.php')
           rs = r.read_text()
