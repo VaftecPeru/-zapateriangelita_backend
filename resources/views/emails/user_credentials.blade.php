@@ -1,36 +1,50 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
-    <title>Bienvenido a Homad</title>
+    <meta charset="utf-8">
+    <title>Compra confirmada - Zapatería Angelita</title>
 </head>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-    
-    <div style="text-align: center; margin-bottom: 30px;">
-        <h1 style="color: #000;">¡Bienvenido a Homad!</h1>
+<body style="margin:0;padding:0;background:#f2ede5;font-family:Arial,Helvetica,sans-serif;color:#222;">
+    <div style="max-width:620px;margin:0 auto;padding:32px 18px;">
+        <div style="background:#fff;border:1px solid #e8e3dc;border-radius:14px;overflow:hidden;box-shadow:0 8px 28px rgba(0,0,0,.06);">
+            <div style="background:#111;color:#fff;text-align:center;padding:26px 20px;">
+                <div style="font-size:12px;letter-spacing:3px;text-transform:uppercase;opacity:.75;">Zapatería</div>
+                <div style="font-size:27px;font-weight:900;letter-spacing:2px;">ANGELITA</div>
+            </div>
+
+            <div style="padding:34px 30px;">
+                <h2 style="margin:0 0 12px;font-size:23px;color:#111;">¡Gracias por tu compra, {{ $user->name }}!</h2>
+                <p style="margin:0 0 18px;line-height:1.7;color:#555;">
+                    Tu pago fue confirmado correctamente. Para que puedas consultar y dar seguimiento a tu compra, creamos automáticamente tu cuenta de cliente.
+                </p>
+
+                @if($order)
+                    <div style="background:#fff7f7;border:1px solid #ffd9dc;border-radius:10px;padding:16px 18px;margin:20px 0;">
+                        <div style="font-size:11px;color:#e30613;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;">Compra confirmada</div>
+                        <div style="margin-top:7px;font-size:16px;"><strong>Pedido:</strong> {{ $order->code }}</div>
+                        <div style="margin-top:5px;font-size:16px;"><strong>Total:</strong> ${{ number_format((float) $order->total, 2) }}</div>
+                    </div>
+                @endif
+
+                <div style="background:#f7f7f7;border:1px solid #e7e7e7;border-radius:10px;padding:20px;margin:22px 0;">
+                    <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:12px;color:#555;">Tus credenciales</div>
+                    <p style="margin:7px 0;"><strong>Usuario:</strong> {{ $user->email }}</p>
+                    <p style="margin:7px 0;"><strong>Contraseña temporal:</strong> <span style="font-family:monospace;background:#fff;border:1px solid #ddd;border-radius:5px;padding:4px 7px;">{{ $password }}</span></p>
+                </div>
+
+                <p style="line-height:1.7;color:#555;">
+                    Por seguridad, te recomendamos cambiar la contraseña temporal desde tu perfil después de ingresar.
+                </p>
+
+                <div style="text-align:center;margin:28px 0 12px;">
+                    <a href="{{ rtrim(env('FRONTEND_URL', 'http://localhost:5173'), '/') }}/login" style="display:inline-block;background:#e30613;color:#fff;text-decoration:none;padding:14px 26px;border-radius:8px;font-weight:800;">Ver mi compra</a>
+                </div>
+            </div>
+
+            <div style="padding:18px 24px;text-align:center;background:#fafafa;border-top:1px solid #eee;color:#888;font-size:12px;">
+                © {{ date('Y') }} Zapatería Angelita. Todos los derechos reservados.
+            </div>
+        </div>
     </div>
-
-    <p>Hola <strong>{{ $user->name }}</strong>,</p>
-
-    <p>Hemos recibido tus datos y tu solicitud de reserva está en proceso. Para facilitarte el seguimiento, hemos creado automáticamente una cuenta para ti.</p>
-
-    <div style="background-color: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #eee;">
-        <h3 style="margin-top: 0;">Tus credenciales de acceso:</h3>
-        <p><strong>Correo (Usuario):</strong> {{ $user->email }}</p>
-        <p><strong>Contraseña temporal:</strong> <span style="background-color: #e2e8f0; padding: 3px 6px; border-radius: 4px; font-family: monospace;">{{ $password }}</span></p>
-    </div>
-
-    <p>Te recomendamos iniciar sesión lo antes posible y cambiar tu contraseña por una de tu preferencia, dirigiéndote a tu perfil.</p>
-
-    <div style="text-align: center; margin: 30px 0;">
-        <a href="{{ rtrim(env('FRONTEND_URL', 'http://localhost:5173'), '/') }}/login" style="background-color: #000; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Iniciar Sesión Aquí</a>
-    </div>
-
-    <p>Si tienes alguna pregunta, no dudes en contactarnos.</p>
-
-    <p style="margin-top: 40px; font-size: 0.9em; color: #666;">
-        Saludos cordiales,<br>
-        El equipo de Homad
-    </p>
-
 </body>
 </html>
