@@ -28,6 +28,33 @@ No se requiere `GOOGLE_CLIENT_SECRET` para este flujo de ID token.
 
 Si Laravel tiene configuración cacheada y no existe terminal, desde el File Manager de cPanel eliminar únicamente `bootstrap/cache/config.php` si existe. No eliminar `.gitignore` ni otros archivos del directorio.
 
+### Verificación obligatoria en producción
+
+Después de guardar el `.env`, abrir en el navegador:
+
+```text
+https://api.zapateriangelita.com/api/auth/google/config
+```
+
+La respuesta correcta debe ser equivalente a:
+
+```json
+{
+  "enabled": true,
+  "client_id": "xxxxxxxxxxxx.apps.googleusercontent.com"
+}
+```
+
+Si responde `"enabled": false` o `"client_id": null`, el botón de Google no puede abrir el selector de cuentas porque el backend todavía no dispone del Client ID. En ese caso:
+
+1. Confirmar `GOOGLE_CLIENT_ID` en el `.env` del backend, sin comillas ni espacios extra.
+2. Eliminar `bootstrap/cache/config.php` si existe y no se dispone de terminal.
+3. Si existe terminal, ejecutar `php artisan config:clear` y luego `php artisan config:cache`.
+4. Volver a consultar `/api/auth/google/config` hasta obtener `enabled: true`.
+5. Confirmar que Google Cloud tenga autorizado `https://zapateriangelita.com` como JavaScript origin.
+
+El frontend solicita esta configuración sin cache y permite reintentar, para evitar que una respuesta anterior `enabled: false` quede retenida después de actualizar el servidor.
+
 ## 3. Base de datos
 
 ### Con terminal
