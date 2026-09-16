@@ -2,11 +2,11 @@ name: Validate Openpay certification backend
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
 
 jobs:
   validate:
-    if: ${{ contains(github.event.head_commit.message, 'ci: validar certificación Openpay backend') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
