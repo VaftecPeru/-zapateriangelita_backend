@@ -1,0 +1,114 @@
+name: Fix postpay autologin final
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-postpay-autologin-final.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Aplicar corrección final backend post pago
+        shell: python
+        run: |
+          from pathlib import Path
+
+          controller = Path('app/Http/Controllers/CheckoutController.php')
+          text = controller.read_text()
+
+          old_mail = '''        if ($createdUser && $user && $temporaryPassword) {
+            try {
+                Mail::to($user->email)->send(new UserCredentialsMail($user, $temporaryPassword, $paidOrder));
+            } catch (\\Throwable $e) {
+                Log::error('CHECKOUT_CREDENTIAL_EMAIL_FAILED', [
+                    'order_id' => $paidOrder->id,
+                    'user_id' => $user->id,
+                    'exception' => get_class($e),
+                ]);
+            }
+
+            $response['account_created'] = true;
+            $response['auth_token'] = $user->createToken('checkout_auto_login')->plainTextToken;
+            $response['user'] = $user;
+            $response['credentials_sent'] = true;
+            return $response;
+        }
+'''
+
+          new_mail = '''        if ($createdUser && $user && $temporaryPassword) {
+            // La respuesta de pago y el auto-login no deben depender del SMTP.
+            // Entregamos primero la sesión al cliente y enviamos las credenciales
+            // al finalizar la respuesta HTTP para evitar que una demora del correo
+            // deje la pantalla atrapada en \"Verificando tu pago\".
+            $response['account_created'] = true;
+            $response['auth_token'] = $user->createToken('checkout_auto_login')->plainTextToken;
+            $response['user'] = $user;
+            $response['credentials_delivery'] = 'scheduled';
+
+            $mailUser = $user;
+            $mailPassword = $temporaryPassword;
+            $mailOrder = $paidOrder;
+
+            app()->terminating(function () use ($mailUser, $mailPassword, $mailOrder) {
+                try {
+                    Mail::to($mailUser->email)->send(
+                        new UserCredentialsMail($mailUser, $mailPassword, $mailOrder)
+                    );
+                } catch (\\Throwable $e) {
+                    Log::error('CHECKOUT_CREDENTIAL_EMAIL_FAILED', [
+                        'order_id' => $mailOrder->id,
+                        'user_id' => $mailUser->id,
+                        'exception' => get_class($e),
+                    ]);
+                }
+            });
+
+            return $response;
+        }
+'''
+
+          if old_mail not in text:
+              raise SystemExit('No se encontró bloque de correo esperado')
+          text = text.replace(old_mail, new_mail, 1)
+          controller.write_text(text)
+
+          routes = Path('routes/api.php')
+          routes_text = routes.read_text()
+          old_route = "    Route::get('/checkout/payments/openpay/verify', [CheckoutController::class, 'verify']);"
+          new_route = "    Route::match(['get', 'post'], '/checkout/payments/openpay/verify', [CheckoutController::class, 'verify']);"
+          if old_route not in routes_text:
+              raise SystemExit('No se encontró ruta verify esperada')
+          routes.write_text(routes_text.replace(old_route, new_route, 1))
+
+      - name: Validar sintaxis PHP
+        run: |
+          php -l app/Http/Controllers/CheckoutController.php
+          php -l routes/api.php
+
+      - name: Validar correcciones críticas
+        shell: bash
+        run: |
+          grep -q "credentials_delivery.*scheduled" app/Http/Controllers/CheckoutController.php
+          grep -q "app()->terminating" app/Http/Controllers/CheckoutController.php
+          grep -q "Route::match(\['get', 'post'\]" routes/api.php
+          grep -q "auto_login_reissued" app/Http/Controllers/CheckoutController.php
+
+      - name: Guardar backend corregido en main
+        shell: bash
+        run: |
+          git config user.name "VaftecPeru"
+          git config user.email "vaftecperusac@gmail.com"
+          git add app/Http/Controllers/CheckoutController.php routes/api.php
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: completar auto-login post pago sin bloqueo por correo"
+          git push origin main
