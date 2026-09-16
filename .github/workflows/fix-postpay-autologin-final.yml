@@ -12,8 +12,7 @@ jobs:
   patch:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
@@ -22,67 +21,60 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           p = Path('app/Http/Controllers/CheckoutController.php')
           s = p.read_text()
-          old = """        if ($createdUser && $user && $temporaryPassword) {
-              try {
-                  Mail::to($user->email)->send(new UserCredentialsMail($user, $temporaryPassword, $paidOrder));
-              } catch (\\Throwable $e) {
-                  Log::error('CHECKOUT_CREDENTIAL_EMAIL_FAILED', [
-                      'order_id' => $paidOrder->id,
-                      'user_id' => $user->id,
-                      'exception' => get_class($e),
-                  ]);
-              }
 
-              $response['account_created'] = true;
-              $response['auth_token'] = $user->createToken('checkout_auto_login')->plainTextToken;
-              $response['user'] = $user;
-              $response['credentials_sent'] = true;
-              return $response;
-          }
-          """
-          new = """        if ($createdUser && $user && $temporaryPassword) {
-              // El auto-login no debe esperar al servidor SMTP. La sesión se
-              // entrega inmediatamente y el correo se procesa al terminar la respuesta.
-              $response['account_created'] = true;
-              $response['auth_token'] = $user->createToken('checkout_auto_login')->plainTextToken;
-              $response['user'] = $user;
-              $response['credentials_delivery'] = 'scheduled';
+          pattern = re.compile(
+              r"        if \(\$createdUser && \$user && \$temporaryPassword\) \{.*?        \}\n\n        if \(\$guestCheckout && \$user && \$userWasAlreadyLinked\) \{",
+              re.S,
+          )
+          replacement = '''        if ($createdUser && $user && $temporaryPassword) {
+            // El auto-login no debe esperar al servidor SMTP. Entregamos la
+            // sesión inmediatamente y enviamos las credenciales al terminar la
+            // respuesta HTTP para que el cliente llegue a Mis Compras sin bloqueo.
+            $response['account_created'] = true;
+            $response['auth_token'] = $user->createToken('checkout_auto_login')->plainTextToken;
+            $response['user'] = $user;
+            $response['credentials_delivery'] = 'scheduled';
 
-              $mailUser = $user;
-              $mailPassword = $temporaryPassword;
-              $mailOrder = $paidOrder;
+            $mailUser = $user;
+            $mailPassword = $temporaryPassword;
+            $mailOrder = $paidOrder;
 
-              app()->terminating(function () use ($mailUser, $mailPassword, $mailOrder) {
-                  try {
-                      Mail::to($mailUser->email)->send(
-                          new UserCredentialsMail($mailUser, $mailPassword, $mailOrder)
-                      );
-                  } catch (\\Throwable $e) {
-                      Log::error('CHECKOUT_CREDENTIAL_EMAIL_FAILED', [
-                          'order_id' => $mailOrder->id,
-                          'user_id' => $mailUser->id,
-                          'exception' => get_class($e),
-                      ]);
-                  }
-              });
+            app()->terminating(function () use ($mailUser, $mailPassword, $mailOrder) {
+                try {
+                    Mail::to($mailUser->email)->send(
+                        new UserCredentialsMail($mailUser, $mailPassword, $mailOrder)
+                    );
+                } catch (\\Throwable $e) {
+                    Log::error('CHECKOUT_CREDENTIAL_EMAIL_FAILED', [
+                        'order_id' => $mailOrder->id,
+                        'user_id' => $mailUser->id,
+                        'exception' => get_class($e),
+                    ]);
+                }
+            });
 
-              return $response;
-          }
-          """
-          if old not in s:
-              raise SystemExit('mail block not found')
-          p.write_text(s.replace(old, new, 1))
+            return $response;
+        }
+
+        if ($guestCheckout && $user && $userWasAlreadyLinked) {'''
+          s2, count = pattern.subn(replacement, s, count=1)
+          if count != 1:
+              raise SystemExit(f'expected one mail block, found {count}')
+          p.write_text(s2)
 
           r = Path('routes/api.php')
           rs = r.read_text()
           old_route = "    Route::get('/checkout/payments/openpay/verify', [CheckoutController::class, 'verify']);"
           new_route = "    Route::match(['get', 'post'], '/checkout/payments/openpay/verify', [CheckoutController::class, 'verify']);"
-          if old_route not in rs:
+          if old_route in rs:
+              rs = rs.replace(old_route, new_route, 1)
+          elif new_route not in rs:
               raise SystemExit('verify route not found')
-          r.write_text(rs.replace(old_route, new_route, 1))
+          r.write_text(rs)
           PY
 
       - name: Validate PHP
@@ -92,6 +84,7 @@ jobs:
           grep -q "credentials_delivery.*scheduled" app/Http/Controllers/CheckoutController.php
           grep -q "app()->terminating" app/Http/Controllers/CheckoutController.php
           grep -q "auto_login_reissued" app/Http/Controllers/CheckoutController.php
+          grep -q "Route::match" routes/api.php
 
       - name: Commit
         run: |
