@@ -1,0 +1,34 @@
+name: Validate Google Auth backend
+
+on:
+  push:
+    branches:
+      - validate-google-auth-20260916
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: openssl, mbstring, pdo_mysql
+          coverage: none
+      - name: Validate Composer manifest
+        run: composer validate --no-check-publish
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+      - name: PHP syntax checks
+        run: |
+          php -l app/Http/Controllers/GoogleAuthController.php
+          php -l app/Models/User.php
+          php -l routes/api.php
+          php -l config/services.php
+          php -l database/migrations/2026_09_16_071500_add_google_identity_to_users_table.php
+      - name: Laravel routes boot check
+        env:
+          APP_ENV: testing
+          APP_KEY: base64:WmFwYXRlcmlhQW5nZWxpdGFTZWN1cmVLZXlGb3JUZXN0aW5nMTIzNDU2Nzg5MA==
+          GOOGLE_CLIENT_ID: test-client-id.apps.googleusercontent.com
+        run: php artisan route:list --path=auth/google
