@@ -16,6 +16,7 @@ use App\Http\Controllers\AddressController;
 use App\Http\Controllers\FavoriteController;
 use App\Http\Controllers\ReviewController;
 use App\Http\Controllers\OrderController;
+use App\Http\Controllers\CheckoutController;
 use App\Http\Controllers\ProductSizeController;
 use App\Http\Controllers\ProductColorController;
 use App\Http\Controllers\Api\OpenpayController;
@@ -62,21 +63,24 @@ Route::middleware('throttle:100,1')->group(function () {
 });
 
 // Openpay: configuración pública.
-// El método config() debe devolver únicamente datos públicos,
-// nunca la llave privada.
 Route::get('/openpay/config', [
     OpenpayController::class,
     'config',
 ]);
 
-// Openpay: recepción de notificaciones.
-// Debe permanecer fuera de auth:sanctum y del middleware admin.
-// La recepción del código se implementa en:
-// app/Http/Controllers/Api/OpenpayController.php -> webhook()
+// Openpay: recepción de notificaciones del proveedor.
 Route::post('/openpay/webhook', [
     OpenpayController::class,
     'webhook',
 ])->name('openpay.webhook');
+
+// Checkout de tienda. Se permite comprar como invitado; cada pedido emite un
+// token cifrado y temporal que autoriza únicamente su propio flujo de pago.
+Route::middleware('throttle:30,1')->group(function () {
+    Route::post('/checkout/orders', [CheckoutController::class, 'createOrder']);
+    Route::post('/checkout/payments/openpay/charge', [CheckoutController::class, 'charge']);
+    Route::get('/checkout/payments/openpay/verify', [CheckoutController::class, 'verify']);
+});
 
 // Rutas para usuarios autenticados
 Route::middleware('auth:sanctum')->group(function () {
@@ -130,11 +134,11 @@ Route::middleware('auth:sanctum')->group(function () {
     // Reseñas
     Route::post('/reviews', [ReviewController::class, 'store']);
 
-    // Pedidos del cliente
+    // Pedidos del cliente. Se mantienen por compatibilidad con clientes ya autenticados.
     Route::post('/orders', [OrderController::class, 'store']);
     Route::get('/my-orders', [OrderController::class, 'myOrders']);
 
-    // Pagos del cliente
+    // Pagos autenticados históricos. El checkout nuevo utiliza /checkout/payments/...
     Route::post('/payments/openpay/charge', [
         OpenpayController::class,
         'charge',
