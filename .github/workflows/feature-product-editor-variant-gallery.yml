@@ -1,0 +1,93 @@
+name: Feature product editor variant gallery backend
+
+on:
+  push:
+    branches:
+      - feature/product-editor-variant-gallery
+    paths:
+      - '.github/workflows/feature-product-editor-variant-gallery.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/product-editor-variant-gallery
+          fetch-depth: 0
+
+      - name: Ajustar portada desde galería de variantes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('app/Http/Controllers/ProductController.php')
+          text = path.read_text()
+
+          old_store = '''        if ($request->hasFile('img_file')) {
+            $validated['img'] = $this->optimizeImage($request->file('img_file'));
+        } elseif (count($imageUrls) > 0) {
+            $validated['img'] = $imageUrls[0];
+        }
+'''
+          new_store = '''        if ($request->hasFile('img_file')) {
+            $validated['img'] = $this->optimizeImage($request->file('img_file'));
+        } elseif (count($imageUrls) > 0) {
+            $validated['img'] = $imageUrls[0];
+        } elseif (!empty($colors[0]) && !empty($validated['color_images'][$colors[0]])) {
+            // El editor administra la galería dentro de cada color. La primera
+            // imagen del primer color funciona también como portada del producto.
+            $validated['images'] = array_slice($validated['color_images'][$colors[0]], 0, 5);
+            $validated['img'] = $validated['images'][0] ?? null;
+        }
+'''
+          if old_store not in text:
+              raise SystemExit('No se encontró bloque de portada en store')
+          text = text.replace(old_store, new_store, 1)
+
+          marker = "        $validated['color_sizes'] = $this->normalizeColorSizes($request->input('color_sizes')) ?? $product->color_sizes;\n"
+          addition = '''        $uploadedColorImages = $request->file('color_images', []);
+        $firstColor = $colors[0] ?? null;
+        $hasNewPrimaryGallery = !empty($uploadedColorImages[0] ?? []);
+'''
+          if marker not in text:
+              raise SystemExit('No se encontró punto de inserción de actualización')
+          text = text.replace(marker, marker + addition, 1)
+
+          marker_images = "        $validated['images'] = $finalImages;\n"
+          replacement_images = '''        if (
+            ($hasNewPrimaryGallery || count($finalImages) === 0) &&
+            $firstColor &&
+            !empty($validated['color_images'][$firstColor])
+        ) {
+            // Si cambia la galería del primer color, su primera foto pasa a ser
+            // también la portada general. Mantiene compatibilidad con listados
+            // que todavía consumen products.img / products.images.
+            $finalImages = array_slice($validated['color_images'][$firstColor], 0, 5);
+        }
+
+        $validated['images'] = $finalImages;
+'''
+          if marker_images not in text:
+              raise SystemExit('No se encontró asignación final de imágenes')
+          text = text.replace(marker_images, replacement_images, 1)
+
+          path.write_text(text)
+
+      - name: Validar PHP
+        run: |
+          php -l app/Http/Controllers/ProductController.php
+          grep -q "hasNewPrimaryGallery" app/Http/Controllers/ProductController.php
+          grep -q "primera imagen del primer color" app/Http/Controllers/ProductController.php
+
+      - name: Guardar cambios en rama feature
+        run: |
+          git config user.name "VaftecPeru"
+          git config user.email "vaftecperusac@gmail.com"
+          git add app/Http/Controllers/ProductController.php
+          git diff --cached --quiet && exit 0
+          git commit -m "feat: usar galería de variantes como portada del producto"
+          git push origin feature/product-editor-variant-gallery
