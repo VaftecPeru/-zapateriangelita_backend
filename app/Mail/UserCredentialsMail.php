@@ -3,7 +3,6 @@
 namespace App\Mail;
 
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
@@ -15,29 +14,22 @@ class UserCredentialsMail extends Mailable
 
     public $user;
     public $password;
+    public $order;
 
-    /**
-     * Create a new message instance.
-     */
-    public function __construct($user, $password)
+    public function __construct($user, $password, $order = null)
     {
         $this->user = $user;
         $this->password = $password;
+        $this->order = $order;
     }
 
-    /**
-     * Get the message envelope.
-     */
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: '¡Bienvenido a Homad! Tu cuenta ha sido creada',
+            subject: 'Compra confirmada y acceso a Zapatería Angelita',
         );
     }
 
-    /**
-     * Get the message content definition.
-     */
     public function content(): Content
     {
         return new Content(
@@ -45,11 +37,6 @@ class UserCredentialsMail extends Mailable
         );
     }
 
-    /**
-     * Get the attachments for the message.
-     *
-     * @return array<int, \Illuminate\Mail\Mailables\Attachment>
-     */
     public function attachments(): array
     {
         return [];
