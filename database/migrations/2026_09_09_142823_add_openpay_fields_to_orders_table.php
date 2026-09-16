@@ -8,34 +8,69 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('orders', function (Blueprint $table) {
-            $table->string('payment_status')
-                ->default('pending');
+        if (!Schema::hasTable('orders')) {
+            return;
+        }
 
-            $table->string('payment_transaction_id')
-                ->nullable();
+        if (!Schema::hasColumn('orders', 'payment_status')) {
+            Schema::table('orders', function (Blueprint $table) {
+                $table->string('payment_status')
+                    ->default('pending')
+                    ->after('payment_method');
+            });
+        }
 
-            $table->string('payment_reference')
-                ->nullable();
+        if (!Schema::hasColumn('orders', 'payment_transaction_id')) {
+            Schema::table('orders', function (Blueprint $table) {
+                $table->string('payment_transaction_id')
+                    ->nullable()
+                    ->after('payment_status');
+            });
+        }
 
-            $table->text('payment_error')
-                ->nullable();
+        if (!Schema::hasColumn('orders', 'payment_reference')) {
+            Schema::table('orders', function (Blueprint $table) {
+                $table->string('payment_reference')
+                    ->nullable()
+                    ->after('payment_transaction_id');
+            });
+        }
 
-            $table->timestamp('paid_at')
-                ->nullable();
-        });
+        if (!Schema::hasColumn('orders', 'payment_error')) {
+            Schema::table('orders', function (Blueprint $table) {
+                $table->text('payment_error')
+                    ->nullable()
+                    ->after('payment_reference');
+            });
+        }
+
+        if (!Schema::hasColumn('orders', 'paid_at')) {
+            Schema::table('orders', function (Blueprint $table) {
+                $table->timestamp('paid_at')
+                    ->nullable()
+                    ->after('payment_error');
+            });
+        }
     }
 
     public function down(): void
     {
-        Schema::table('orders', function (Blueprint $table) {
-            $table->dropColumn([
-                'payment_status',
-                'payment_transaction_id',
-                'payment_reference',
-                'payment_error',
-                'paid_at',
-            ]);
-        });
+        if (!Schema::hasTable('orders')) {
+            return;
+        }
+
+        foreach ([
+            'paid_at',
+            'payment_error',
+            'payment_reference',
+            'payment_transaction_id',
+            'payment_status',
+        ] as $column) {
+            if (Schema::hasColumn('orders', $column)) {
+                Schema::table('orders', function (Blueprint $table) use ($column) {
+                    $table->dropColumn($column);
+                });
+            }
+        }
     }
 };
