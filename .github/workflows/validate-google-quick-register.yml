@@ -1,0 +1,26 @@
+name: Validate Google quick register backend
+
+on:
+  push:
+    branches:
+      - feature/google-quick-register-login
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, openssl, pdo_mysql
+      - name: Validate Composer manifest
+        run: composer validate --no-check-publish
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+      - name: PHP syntax checks
+        run: |
+          php -l app/Http/Controllers/GoogleAuthController.php
+          php -l routes/api.php
+      - name: Laravel routes boot check
+        run: php artisan route:list --path=auth/google
