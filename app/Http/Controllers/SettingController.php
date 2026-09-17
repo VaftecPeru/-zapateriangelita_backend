@@ -97,20 +97,54 @@ class SettingController extends Controller
                 abort(422, 'Banner inválido en la posición ' . ($index + 1) . '.');
             }
 
+            $position = $index + 1;
+            $eyebrow = trim((string) ($banner['eyebrow'] ?? ''));
             $title = trim((string) ($banner['title'] ?? ''));
+            $description = trim((string) ($banner['description'] ?? ''));
             $image = trim((string) ($banner['image'] ?? ''));
+            $imagePosition = trim((string) ($banner['imagePosition'] ?? 'center center'));
             $textColor = trim((string) ($banner['textColor'] ?? '#ffffff'));
+            $buttonLabel = trim((string) ($banner['buttonLabel'] ?? ''));
+            $buttonUrl = trim((string) ($banner['buttonUrl'] ?? ''));
 
             if ($title === '' || mb_strlen($title) > 120) {
-                abort(422, 'Cada banner debe tener un título de hasta 120 caracteres.');
+                abort(422, "El banner {$position} debe tener un título de hasta 120 caracteres.");
+            }
+
+            if ($eyebrow !== '' && mb_strlen($eyebrow) > 60) {
+                abort(422, "El texto superior del banner {$position} admite hasta 60 caracteres.");
+            }
+
+            if ($description !== '' && mb_strlen($description) > 220) {
+                abort(422, "La descripción del banner {$position} admite hasta 220 caracteres.");
             }
 
             if ($image === '' || mb_strlen($image) > 2048) {
-                abort(422, 'Cada banner debe tener una imagen válida.');
+                abort(422, "El banner {$position} debe tener una imagen válida.");
+            }
+
+            $isLocalUpload = str_starts_with($image, '/uploads/banners/');
+            $isAbsoluteUrl = filter_var($image, FILTER_VALIDATE_URL) !== false;
+            $isFrontendAsset = str_starts_with($image, '/assets/') || str_starts_with($image, 'data:');
+
+            if (!$isLocalUpload && !$isAbsoluteUrl && !$isFrontendAsset) {
+                abort(422, "La imagen del banner {$position} no tiene una ruta permitida.");
             }
 
             if (!preg_match('/^#[0-9a-fA-F]{6}$/', $textColor)) {
-                abort(422, 'El color de texto del banner debe usar formato hexadecimal.');
+                abort(422, "El color de texto del banner {$position} debe usar formato hexadecimal.");
+            }
+
+            if ($imagePosition === '' || mb_strlen($imagePosition) > 80) {
+                abort(422, "La posición de imagen del banner {$position} no es válida.");
+            }
+
+            if ($buttonLabel !== '' && mb_strlen($buttonLabel) > 40) {
+                abort(422, "El texto del botón del banner {$position} admite hasta 40 caracteres.");
+            }
+
+            if ($buttonUrl !== '' && mb_strlen($buttonUrl) > 500) {
+                abort(422, "El enlace del banner {$position} es demasiado largo.");
             }
         }
     }
