@@ -204,6 +204,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Estadísticas y configuración
         Route::get('/stats', [StatsController::class, 'index']);
+        Route::post('/settings/hero-banners/image', [SettingController::class, 'uploadBannerImage']);
         Route::put('/settings/{key}', [SettingController::class, 'update']);
 
         // Leads
