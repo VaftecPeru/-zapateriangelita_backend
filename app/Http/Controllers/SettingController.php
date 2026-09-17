@@ -126,8 +126,9 @@ class SettingController extends Controller
                 return response()->json(['message' => 'El color de texto del banner ' . ($index + 1) . ' no es válido.'], 422);
             }
 
-            if ($image !== '' && !str_starts_with($image, '/uploads/') && !filter_var($image, FILTER_VALIDATE_URL)) {
-                return response()->json(['message' => 'La imagen del banner ' . ($index + 1) . ' debe ser una URL o una imagen cargada al servidor.'], 422);
+            $isSafeLocalPath = str_starts_with($image, '/') && !str_contains($image, '..');
+            if ($image !== '' && !$isSafeLocalPath && !filter_var($image, FILTER_VALIDATE_URL)) {
+                return response()->json(['message' => 'La imagen del banner ' . ($index + 1) . ' debe ser una URL o una ruta local válida.'], 422);
             }
 
             if ($active) {
