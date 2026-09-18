@@ -1,0 +1,37 @@
+name: Evaluate Laravel 12 corrective upgrade
+on:
+  pull_request:
+    branches:
+      - fix/premerge-corrective-20260918
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, intl, pdo_sqlite, bcmath, curl, openssl, fileinfo
+          tools: composer:v2
+      - name: Resolve Laravel 12 dependencies
+        run: composer update --with-all-dependencies --no-interaction --no-progress
+      - name: PHP syntax
+        run: find app routes config database tests -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Laravel bootstrap
+        run: |
+          php artisan about
+          php artisan route:list
+        env:
+          APP_ENV: testing
+          APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ':memory:'
+          CACHE_STORE: array
+          CACHE_DRIVER: array
+          SESSION_DRIVER: array
+          QUEUE_CONNECTION: sync
+          MAIL_MAILER: array
+      - name: PHPUnit
+        run: vendor/bin/phpunit --testdox
+      - name: Security audit
+        run: composer audit --locked
