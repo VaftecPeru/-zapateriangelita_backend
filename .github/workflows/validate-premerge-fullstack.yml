@@ -18,9 +18,15 @@ jobs:
           php-version: '8.2'
           extensions: mbstring, intl, pdo_sqlite, bcmath, curl, openssl, fileinfo
           tools: composer:v2
-      - run: composer install --prefer-dist --no-interaction --no-progress
+      - run: composer update --lock --no-interaction --no-progress
       - run: composer validate --strict --no-check-publish
+      - run: composer install --prefer-dist --no-interaction --no-progress
       - run: composer audit --locked
+      - uses: actions/upload-artifact@v4
+        with:
+          name: composer-lock-final
+          path: composer.lock
+          retention-days: 1
       - run: find app routes config database tests -type f -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Prepare test environment
         run: |
