@@ -299,7 +299,7 @@ class CheckoutController extends Controller
             }
 
             if (!$response->successful()) {
-                $message = $data['description'] ?? $data['error_message'] ?? 'Openpay rechazó la operación.';
+                $providerMessage = $data['description'] ?? $data['error_message'] ?? 'Openpay rechazó la operación.';
                 $uncertain = $response->serverError()
                     || in_array($response->status(), [408, 409, 429], true);
 
@@ -307,17 +307,30 @@ class CheckoutController extends Controller
                     return response()->json([
                         'ok' => false,
                         'payment_status' => 'processing',
+                        'stage' => 'charge',
                         'message' => 'No se pudo confirmar el resultado. Revisa el cargo antes de reintentar.',
                     ], 502);
                 }
 
-                $this->releaseStockReservation($order, $message);
+                $error = $this->normalizeOpenpayDecline($data);
+                $this->releaseStockReservation($order, $providerMessage);
+
+                Log::warning('CHECKOUT_OPENPAY_DECLINED', [
+                    'order_id' => $order->id,
+                    'http_status' => $response->status(),
+                    'error_code' => $error['code'],
+                    'error_key' => $error['key'],
+                    'request_id' => $data['request_id'] ?? null,
+                ]);
 
                 return response()->json([
                     'ok' => false,
                     'payment_status' => 'failed',
-                    'message' => $message,
-                    'error_code' => $data['error_code'] ?? null,
+                    'stage' => 'charge',
+                    'error_key' => $error['key'],
+                    'error_title' => $error['title'],
+                    'message' => $error['message'],
+                    'error_code' => $error['code'],
                     'request_id' => $data['request_id'] ?? null,
                 ], 422);
             }
@@ -831,6 +844,115 @@ class CheckoutController extends Controller
         } while (Order::where('code', $code)->exists());
 
         return $code;
+    }
+
+    private function normalizeOpenpayDecline(array $data): array
+    {
+        $code = (string) ($data['error_code'] ?? '');
+
+        $errors = [
+            '2004' => [
+                'key' => 'INVALID_CARD_NUMBER',
+                'title' => 'Número de tarjeta inválido',
+                'message' => 'El número de tarjeta no es válido. Verifica los datos e intenta nuevamente.',
+            ],
+            '2005' => [
+                'key' => 'CARD_EXPIRED',
+                'title' => 'Tarjeta expirada',
+                'message' => 'La tarjeta ha expirado.',
+            ],
+            '2006' => [
+                'key' => 'INVALID_CVV',
+                'title' => 'CVV inválido',
+                'message' => 'Verifica el código de seguridad (CVV) de la tarjeta e intenta nuevamente.',
+            ],
+            '2007' => [
+                'key' => 'TEST_CARD_NOT_ALLOWED',
+                'title' => 'Tarjeta de prueba no permitida',
+                'message' => 'La tarjeta de prueba solo puede utilizarse en el ambiente Sandbox de Openpay.',
+            ],
+            '2009' => [
+                'key' => 'INVALID_CVV',
+                'title' => 'CVV inválido',
+                'message' => 'Verifica el código de seguridad (CVV) de la tarjeta e intenta nuevamente.',
+            ],
+            '2010' => [
+                'key' => 'THREE_DS_FAILED',
+                'title' => 'Verificación 3D Secure fallida',
+                'message' => 'No se pudo completar la verificación de seguridad. Intenta nuevamente o usa otra tarjeta.',
+            ],
+            '3001' => [
+                'key' => 'CARD_DECLINED',
+                'title' => 'Tarjeta rechazada',
+                'message' => 'La tarjeta fue rechazada. Intenta con otra tarjeta o comunícate con tu banco.',
+            ],
+            '3002' => [
+                'key' => 'CARD_EXPIRED',
+                'title' => 'Tarjeta expirada',
+                'message' => 'La tarjeta ha expirado.',
+            ],
+            '3003' => [
+                'key' => 'INSUFFICIENT_FUNDS',
+                'title' => 'Fondos insuficientes',
+                'message' => 'La tarjeta no tiene fondos suficientes.',
+            ],
+            '3004' => [
+                'key' => 'CARD_REPORTED_STOLEN',
+                'title' => 'Tarjeta robada',
+                'message' => 'La tarjeta ha sido identificada como una tarjeta robada.',
+            ],
+            '3005' => [
+                'key' => 'ANTIFRAUD_REJECTED',
+                'title' => 'Tarjeta rechazada por seguridad',
+                'message' => 'La tarjeta ha sido rechazada por el sistema antifraudes.',
+            ],
+            '3006' => [
+                'key' => 'OPERATION_NOT_ALLOWED',
+                'title' => 'Operación no permitida',
+                'message' => 'Esta operación no está permitida para la tarjeta. Intenta con otra tarjeta.',
+            ],
+            '3007' => [
+                'key' => 'CARD_DECLINED',
+                'title' => 'Tarjeta rechazada',
+                'message' => 'La tarjeta fue rechazada. Intenta con otra tarjeta o comunícate con tu banco.',
+            ],
+            '3008' => [
+                'key' => 'ONLINE_PURCHASE_NOT_ALLOWED',
+                'title' => 'Tarjeta no compatible',
+                'message' => 'Esta tarjeta no permite compras en línea. Intenta con otra tarjeta.',
+            ],
+            '3009' => [
+                'key' => 'CARD_NOT_AUTHORIZED',
+                'title' => 'Tarjeta no autorizada',
+                'message' => 'El banco no autorizó esta tarjeta. Utiliza otra tarjeta o comunícate con tu banco.',
+            ],
+            '3010' => [
+                'key' => 'CARD_RESTRICTED',
+                'title' => 'Tarjeta restringida',
+                'message' => 'El banco ha restringido la tarjeta. Comunícate con tu banco o utiliza otra tarjeta.',
+            ],
+            '3011' => [
+                'key' => 'PAYMENT_NOT_AUTHORIZED',
+                'title' => 'Tarjeta no autorizada',
+                'message' => 'El banco no autorizó el pago. Comunícate con tu banco o utiliza otra tarjeta.',
+            ],
+            '3012' => [
+                'key' => 'BANK_AUTHORIZATION_REQUIRED',
+                'title' => 'Autorización bancaria requerida',
+                'message' => 'Tu banco requiere una autorización adicional para realizar este pago.',
+            ],
+        ];
+
+        $fallback = [
+            'key' => 'PAYMENT_DECLINED',
+            'title' => 'Transacción no aprobada',
+            'message' => 'Openpay no aprobó el pago. Revisa los datos o utiliza otra tarjeta.',
+        ];
+
+        return array_merge(
+            ['code' => $code !== '' ? $code : null],
+            $errors[$code] ?? $fallback
+        );
     }
 
     private function configurationErrors(): array
