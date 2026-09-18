@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Models\ProductSize;
 use App\Services\CheckoutStockService;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
@@ -21,6 +22,12 @@ class OpenpayWebhookReconciliationTest extends TestCase
             'database.default' => 'sqlite',
             'database.connections.sqlite.database' => ':memory:',
             'openpay.currency' => 'MXN',
+            'openpay.merchant_id' => 'merchant_test',
+            'openpay.public_key' => 'pk_test',
+            'openpay.private_key' => 'sk_test',
+            'openpay.base_url' => 'https://sandbox-api.openpay.mx',
+            'openpay.redirect_url' => 'https://example.test/checkout',
+            'openpay.sandbox' => true,
         ]);
 
         $this->createSchema();
@@ -112,9 +119,26 @@ class OpenpayWebhookReconciliationTest extends TestCase
         return [$order, $product, $size];
     }
 
+    private function fakeOpenpayCharge(string $status, float $amount = 216.0): void
+    {
+        Http::fake([
+            'https://sandbox-api.openpay.mx/v1/merchant_test/charges/tr_test_123' => Http::response([
+                'id' => 'tr_test_123',
+                'order_id' => 'ZG-TEST-0001-ABC12345',
+                'amount' => $amount,
+                'currency' => 'MXN',
+                'status' => $status,
+                'error_message' => $status === 'failed' ? 'Tarjeta rechazada' : null,
+            ], 200),
+        ]);
+    }
+
+
     public function test_failed_webhook_releases_reserved_stock_only_once(): void
     {
         [$order, $product, $size] = $this->makeReservedOrder();
+
+        $this->fakeOpenpayCharge('failed');
 
         $payload = [
             'type' => 'charge.failed',
@@ -145,6 +169,7 @@ class OpenpayWebhookReconciliationTest extends TestCase
     public function test_succeeded_webhook_marks_order_paid_without_releasing_stock(): void
     {
         [$order, $product, $size] = $this->makeReservedOrder();
+        $this->fakeOpenpayCharge('completed');
 
         $this->postJson('/api/openpay/webhook', [
             'type' => 'charge.succeeded',
@@ -168,6 +193,7 @@ class OpenpayWebhookReconciliationTest extends TestCase
     public function test_webhook_with_wrong_amount_is_not_reconciled(): void
     {
         [$order] = $this->makeReservedOrder();
+        $this->fakeOpenpayCharge('completed', 999);
 
         $this->postJson('/api/openpay/webhook', [
             'type' => 'charge.succeeded',
@@ -194,4 +220,55 @@ class OpenpayWebhookReconciliationTest extends TestCase
         $this->assertSame(3, (int) $size->fresh()->stock);
         $this->assertSame('processing', $order->fresh()->payment_status);
     }
+
+    public function test_3ds_return_can_recover_when_checkout_token_is_invalid_but_transaction_matches(): void
+    {
+        [$order] = $this->makeReservedOrder();
+        $this->fakeOpenpayCharge('in_progress');
+
+        $this->getJson('/api/checkout/payments/openpay/verify?' . http_build_query([
+            'order_id' => $order->id,
+            'transaction_id' => 'tr_test_123',
+            'checkout_token' => 'token-invalido-despues-del-deploy',
+        ]))
+            ->assertStatus(202)
+            ->assertJson([
+                'ok' => true,
+                'payment_status' => 'processing',
+                'transaction_id' => 'tr_test_123',
+            ]);
+    }
+
+    public function test_3ds_recovery_rejects_transaction_that_does_not_belong_to_order(): void
+    {
+        [$order] = $this->makeReservedOrder();
+
+        $this->getJson('/api/checkout/payments/openpay/verify?' . http_build_query([
+            'order_id' => $order->id,
+            'transaction_id' => 'tr_ajena',
+            'checkout_token' => 'token-invalido',
+        ]))
+            ->assertStatus(403)
+            ->assertJson(['error_code' => 'CHECKOUT_TOKEN_INVALID']);
+    }
+
+    public function test_forged_success_webhook_cannot_mark_order_paid_when_openpay_reports_processing(): void
+    {
+        [$order] = $this->makeReservedOrder();
+        $this->fakeOpenpayCharge('in_progress');
+
+        $this->postJson('/api/openpay/webhook', [
+            'type' => 'charge.succeeded',
+            'transaction' => [
+                'id' => 'tr_test_123',
+                'order_id' => 'ZG-TEST-0001-ABC12345',
+                'amount' => 216,
+                'currency' => 'MXN',
+                'status' => 'completed',
+            ],
+        ])->assertOk()->assertJson(['reconciled' => false]);
+
+        $this->assertSame('processing', $order->fresh()->payment_status);
+    }
+
 }
