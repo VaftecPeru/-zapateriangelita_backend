@@ -555,17 +555,59 @@ class OpenpayController extends Controller
                 return response()->json(['received' => true, 'type' => $type, 'reconciled' => false], 200);
             }
 
-            $receivedAmount = isset($transaction['amount']) && is_numeric($transaction['amount'])
-                ? (int) round((float) $transaction['amount'] * 100)
+            if ($this->configurationErrors()) {
+                $logger->error('OPENPAY_WEBHOOK_CONFIGURATION_INVALID');
+                return response()->json([
+                    'received' => false,
+                    'message' => 'Openpay no está configurado correctamente.',
+                ], 500);
+            }
+
+            // El webhook es una señal, no la fuente final de verdad. Antes de
+            // cambiar pedido o inventario consultamos el cargo directamente a
+            // Openpay con la llave privada. Esto evita que un POST falsificado
+            // pueda aprobar o rechazar una orden.
+            $merchantId = (string) config('openpay.merchant_id');
+            $privateKey = (string) config('openpay.private_key');
+            $baseUrl = rtrim((string) config('openpay.base_url'), '/');
+            $encodedTransactionId = rawurlencode($transactionId);
+
+            $providerResponse = Http::connectTimeout(10)->timeout(30)->withoutRedirecting()
+                ->withBasicAuth($privateKey, '')
+                ->acceptJson()
+                ->get("{$baseUrl}/v1/{$merchantId}/charges/{$encodedTransactionId}");
+
+            $providerTransaction = $providerResponse->json();
+
+            if (!$providerResponse->successful() || !is_array($providerTransaction)) {
+                $logger->warning('OPENPAY_WEBHOOK_PROVIDER_CONFIRMATION_FAILED', [
+                    'order_id' => $order->id,
+                    'transaction_id' => $transactionId,
+                    'http_status' => $providerResponse->status(),
+                ]);
+
+                // 5xx obliga a Openpay a reintentar la notificación.
+                return response()->json([
+                    'received' => false,
+                    'message' => 'No fue posible confirmar el cargo con Openpay.',
+                ], 500);
+            }
+
+            $receivedAmount = isset($providerTransaction['amount']) && is_numeric($providerTransaction['amount'])
+                ? (int) round((float) $providerTransaction['amount'] * 100)
                 : null;
             $expectedAmount = (int) round((float) $order->total * 100);
-            $receivedCurrency = strtoupper((string) ($transaction['currency'] ?? ''));
+            $receivedCurrency = strtoupper((string) ($providerTransaction['currency'] ?? ''));
             $expectedCurrency = strtoupper((string) config('openpay.currency', 'MXN'));
+            $confirmedReference = trim((string) ($providerTransaction['order_id'] ?? ''));
+            $confirmedId = trim((string) ($providerTransaction['id'] ?? ''));
+            $confirmedStatus = strtolower(trim((string) ($providerTransaction['status'] ?? '')));
 
             if (
-                (string) $order->payment_reference !== $providerReference ||
-                ($receivedAmount !== null && $receivedAmount !== $expectedAmount) ||
-                ($receivedCurrency !== '' && $receivedCurrency !== $expectedCurrency)
+                !hash_equals($transactionId, $confirmedId) ||
+                !hash_equals((string) $order->payment_reference, $confirmedReference) ||
+                $receivedAmount !== $expectedAmount ||
+                $receivedCurrency !== $expectedCurrency
             ) {
                 $logger->warning('OPENPAY_WEBHOOK_MISMATCH', [
                     'order_id' => $order->id,
@@ -576,13 +618,16 @@ class OpenpayController extends Controller
                 return response()->json(['received' => true, 'type' => $type, 'reconciled' => false], 200);
             }
 
-            if ($order->payment_transaction_id && !hash_equals((string) $order->payment_transaction_id, $transactionId)) {
+            if ($order->payment_transaction_id && !hash_equals((string) $order->payment_transaction_id, $confirmedId)) {
                 $logger->warning('OPENPAY_WEBHOOK_TRANSACTION_MISMATCH', ['order_id' => $order->id]);
                 return response()->json(['received' => true, 'type' => $type, 'reconciled' => false], 200);
             }
 
-            if (in_array($type, ['charge.succeeded', 'charge.completed'], true)) {
-                DB::transaction(function () use ($order, $transactionId) {
+            if (
+                in_array($type, ['charge.succeeded', 'charge.completed'], true) &&
+                $confirmedStatus === 'completed'
+            ) {
+                DB::transaction(function () use ($order, $confirmedId) {
                     $lockedOrder = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
 
                     if ($lockedOrder->payment_status === 'paid') {
@@ -590,7 +635,7 @@ class OpenpayController extends Controller
                     }
 
                     $lockedOrder->payment_method = 'openpay';
-                    $lockedOrder->payment_transaction_id = $transactionId;
+                    $lockedOrder->payment_transaction_id = $confirmedId;
                     $lockedOrder->payment_status = 'paid';
                     $lockedOrder->payment_error = null;
                     $lockedOrder->paid_at = $lockedOrder->paid_at ?: now();
@@ -601,15 +646,22 @@ class OpenpayController extends Controller
                 return response()->json(['received' => true, 'type' => $type, 'reconciled' => true], 200);
             }
 
-            if (in_array($type, ['charge.failed', 'charge.cancelled'], true)) {
+            if (
+                in_array($type, ['charge.failed', 'charge.cancelled'], true) &&
+                in_array($confirmedStatus, ['failed', 'cancelled'], true)
+            ) {
                 if (!$order->payment_transaction_id) {
-                    $order->payment_transaction_id = $transactionId;
+                    $order->payment_transaction_id = $confirmedId;
                     $order->save();
                 }
 
                 app(CheckoutStockService::class)->release(
                     $order,
-                    (string) ($transaction['error_message'] ?? $transaction['description'] ?? 'El pago no fue aprobado por Openpay.')
+                    (string) (
+                        $providerTransaction['error_message']
+                        ?? $providerTransaction['description']
+                        ?? 'El pago no fue aprobado por Openpay.'
+                    )
                 );
 
                 return response()->json(['received' => true, 'type' => $type, 'reconciled' => true], 200);
