@@ -47,20 +47,32 @@ class CheckoutOpenpayFlowTest extends TestCase
         $checkoutToken = $orderResponse->json('checkout_token');
         $orderId = (int) $orderResponse->json('order_id');
 
-        Http::fake(function (ClientRequest $request) {
+        $openpayReference = null;
+        Http::fake(function (ClientRequest $request) use (&$openpayReference) {
             if ($request->method() === 'POST' && str_ends_with($request->url(), '/charges')) {
                 $body = $request->data();
+                $openpayReference = (string) $body['order_id'];
 
                 return Http::response([
                     'id' => 'tr_3ds_ok',
                     'status' => 'in_progress',
-                    'order_id' => $body['order_id'],
+                    'order_id' => $openpayReference,
                     'amount' => $body['amount'],
                     'currency' => 'MXN',
                     'payment_method' => [
                         'type' => 'redirect',
                         'url' => 'https://sandbox-api.openpay.mx/3ds/test',
                     ],
+                ], 200);
+            }
+
+            if ($request->method() === 'GET' && str_contains($request->url(), '/charges/tr_3ds_ok')) {
+                return Http::response([
+                    'id' => 'tr_3ds_ok',
+                    'status' => 'completed',
+                    'order_id' => $openpayReference,
+                    'amount' => 108.00,
+                    'currency' => 'MXN',
                 ], 200);
             }
 
@@ -84,16 +96,6 @@ class CheckoutOpenpayFlowTest extends TestCase
         $this->assertSame(1, (int) $size->fresh()->stock);
 
         $order = Order::findOrFail($orderId);
-
-        Http::fake([
-            '*' => Http::response([
-                'id' => 'tr_3ds_ok',
-                'status' => 'completed',
-                'order_id' => $order->payment_reference,
-                'amount' => 108.00,
-                'currency' => 'MXN',
-            ], 200),
-        ]);
 
         $verify = $this->getJson('/api/checkout/payments/openpay/verify?' . http_build_query([
             'order_id' => $orderId,
@@ -149,20 +151,32 @@ class CheckoutOpenpayFlowTest extends TestCase
         $orderResponse = $this->createGuestOrder($product);
         $orderId = (int) $orderResponse->json('order_id');
 
-        Http::fake(function (ClientRequest $request) {
-            if ($request->method() === 'POST') {
+        $openpayReference = null;
+        Http::fake(function (ClientRequest $request) use (&$openpayReference) {
+            if ($request->method() === 'POST' && str_ends_with($request->url(), '/charges')) {
                 $body = $request->data();
+                $openpayReference = (string) $body['order_id'];
 
                 return Http::response([
                     'id' => 'tr_recovery',
                     'status' => 'in_progress',
-                    'order_id' => $body['order_id'],
+                    'order_id' => $openpayReference,
                     'amount' => $body['amount'],
                     'currency' => 'MXN',
                     'payment_method' => [
                         'type' => 'redirect',
                         'url' => 'https://sandbox-api.openpay.mx/3ds/recovery',
                     ],
+                ], 200);
+            }
+
+            if ($request->method() === 'GET' && str_contains($request->url(), '/charges/tr_recovery')) {
+                return Http::response([
+                    'id' => 'tr_recovery',
+                    'status' => 'completed',
+                    'order_id' => $openpayReference,
+                    'amount' => 108.00,
+                    'currency' => 'MXN',
                 ], 200);
             }
 
@@ -177,16 +191,6 @@ class CheckoutOpenpayFlowTest extends TestCase
         ])->assertStatus(202);
 
         $order = Order::findOrFail($orderId);
-
-        Http::fake([
-            '*' => Http::response([
-                'id' => 'tr_recovery',
-                'status' => 'completed',
-                'order_id' => $order->payment_reference,
-                'amount' => 108.00,
-                'currency' => 'MXN',
-            ], 200),
-        ]);
 
         $verify = $this->getJson('/api/checkout/payments/openpay/verify?' . http_build_query([
             'order_id' => $orderId,
@@ -207,20 +211,32 @@ class CheckoutOpenpayFlowTest extends TestCase
         $orderResponse = $this->createGuestOrder($product);
         $orderId = (int) $orderResponse->json('order_id');
 
-        Http::fake(function (ClientRequest $request) {
-            if ($request->method() === 'POST') {
+        $openpayReference = null;
+        Http::fake(function (ClientRequest $request) use (&$openpayReference) {
+            if ($request->method() === 'POST' && str_ends_with($request->url(), '/charges')) {
                 $body = $request->data();
+                $openpayReference = (string) $body['order_id'];
 
                 return Http::response([
                     'id' => 'tr_webhook',
                     'status' => 'in_progress',
-                    'order_id' => $body['order_id'],
+                    'order_id' => $openpayReference,
                     'amount' => $body['amount'],
                     'currency' => 'MXN',
                     'payment_method' => [
                         'type' => 'redirect',
                         'url' => 'https://sandbox-api.openpay.mx/3ds/webhook',
                     ],
+                ], 200);
+            }
+
+            if ($request->method() === 'GET' && str_contains($request->url(), '/charges/tr_webhook')) {
+                return Http::response([
+                    'id' => 'tr_webhook',
+                    'status' => 'completed',
+                    'order_id' => $openpayReference,
+                    'amount' => 108.00,
+                    'currency' => 'MXN',
                 ], 200);
             }
 
@@ -235,16 +251,6 @@ class CheckoutOpenpayFlowTest extends TestCase
         ])->assertStatus(202);
 
         $order = Order::findOrFail($orderId);
-
-        Http::fake([
-            '*' => Http::response([
-                'id' => 'tr_webhook',
-                'status' => 'completed',
-                'order_id' => $order->payment_reference,
-                'amount' => 108.00,
-                'currency' => 'MXN',
-            ], 200),
-        ]);
 
         $payload = [
             'type' => 'charge.succeeded',
