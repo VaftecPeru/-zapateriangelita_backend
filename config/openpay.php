@@ -28,7 +28,7 @@ return [
         ? 'https://sandbox-api.openpay.mx'
         : 'https://api.openpay.mx',
 
-    'currency' => env('OPENPAY_CURRENCY', 'USD'),
+    'currency' => env('OPENPAY_CURRENCY', 'MXN'),
 
     'redirect_url' => env(
         'OPENPAY_REDIRECT_URL',
