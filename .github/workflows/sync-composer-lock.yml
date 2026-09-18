@@ -1,4 +1,4 @@
-name: Sync composer lock
+name: Sync composer lock final
 on:
   push:
     branches:
