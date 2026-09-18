@@ -1148,7 +1148,7 @@ class CheckoutController extends Controller
             ],
             '3005' => [
                 'key' => 'ANTIFRAUD_REJECTED',
-                'title' => 'Tarjeta rechazada por seguridad',
+                'title' => 'Tarjeta rechazada por fraude/antifraude',
                 'message' => 'La tarjeta ha sido rechazada por el sistema antifraudes.',
             ],
             '3006' => [
