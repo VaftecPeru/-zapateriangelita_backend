@@ -14,15 +14,13 @@ class WelcomeUserMail extends Mailable
     use Queueable, SerializesModels;
 
     public $user;
-    public $password;
 
     /**
      * Create a new message instance.
      */
-    public function __construct($user, $password)
+    public function __construct($user)
     {
         $this->user = $user;
-        $this->password = $password;
     }
 
     /**
