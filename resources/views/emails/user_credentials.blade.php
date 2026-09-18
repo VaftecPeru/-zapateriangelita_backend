@@ -27,14 +27,14 @@
                 @endif
 
                 <div style="background:#f7f7f7;border:1px solid #e7e7e7;border-radius:10px;padding:20px;margin:22px 0;">
-                    <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:12px;color:#555;">Tus credenciales</div>
+                    <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:12px;color:#555;">Tu cuenta</div>
                     <p style="margin:7px 0;"><strong>Usuario:</strong> {{ $user->email }}</p>
-                    <p style="margin:7px 0;"><strong>Contraseña temporal:</strong> <span style="font-family:monospace;background:#fff;border:1px solid #ddd;border-radius:5px;padding:4px 7px;">{{ $password }}</span></p>
+                    <p style="margin:7px 0;color:#555;">Por seguridad no enviamos contraseñas por correo. Define tu contraseña usando el botón siguiente.</p>
                 </div>
 
-                <p style="line-height:1.7;color:#555;">
-                    Por seguridad, te recomendamos cambiar la contraseña temporal desde tu perfil después de ingresar.
-                </p>
+                <div style="text-align:center;margin:24px 0;">
+                    <a href="{{ $passwordSetupUrl }}" style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:14px 26px;border-radius:8px;font-weight:800;">Crear mi contraseña</a>
+                </div>
 
                 <div style="background:#f5f8ff;border:1px solid #dbe7ff;border-radius:10px;padding:18px;margin:20px 0;color:#35425a;line-height:1.6;">
                     <strong style="color:#111;">Acceso más rápido con Google</strong><br>
