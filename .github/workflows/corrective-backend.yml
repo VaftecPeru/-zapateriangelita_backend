@@ -41,6 +41,13 @@ jobs:
           MAIL_MAILER: array
       - name: PHPUnit
         run: vendor/bin/phpunit --testdox
+      - name: Test log diagnostics
+        if: failure()
+        run: |
+          if [ -f storage/logs/laravel.log ]; then
+            tail -n 120 storage/logs/laravel.log
+          fi
       - name: Composer security audit
+        if: always()
         run: composer audit --locked
         continue-on-error: true
