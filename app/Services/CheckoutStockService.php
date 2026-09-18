@@ -18,7 +18,11 @@ class CheckoutStockService
         DB::transaction(function () use ($order, $reason) {
             $lockedOrder = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
 
-            if ($lockedOrder->payment_status !== 'processing') {
+            if (
+                $lockedOrder->payment_status !== 'processing' ||
+                !$lockedOrder->stock_reserved_at ||
+                $lockedOrder->stock_released_at
+            ) {
                 return;
             }
 
@@ -48,6 +52,7 @@ class CheckoutStockService
 
             $lockedOrder->payment_status = 'failed';
             $lockedOrder->payment_error = $reason;
+            $lockedOrder->stock_released_at = now();
             $lockedOrder->save();
         });
     }
