@@ -21,6 +21,11 @@ class Order extends Model
         'shipping_cost',
         'total',
         'payment_method',
+        'payment_status',
+        'payment_reference',
+        'payment_transaction_id',
+        'payment_error',
+        'paid_at',
         'shipping_address',
         'shipping_city',
         'shipping_country',
@@ -38,6 +43,7 @@ class Order extends Model
         'discount' => 'decimal:2',
         'shipping_cost' => 'decimal:2',
         'total' => 'decimal:2',
+        'paid_at' => 'datetime',
     ];
 
     /**
