@@ -84,7 +84,7 @@ Route::get('/openpay/config', [
 
 // Openpay: recepción de notificaciones del proveedor.
 Route::post('/openpay/webhook', [
-    OpenpayController::class,
+    CheckoutController::class,
     'webhook',
 ])->name('openpay.webhook');
 
