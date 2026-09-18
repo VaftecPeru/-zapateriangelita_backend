@@ -6,10 +6,8 @@ on:
   pull_request:
     branches:
       - main
-permissions:
-  contents: write
 jobs:
-  update-and-verify:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,19 +18,27 @@ jobs:
           php-version: '8.2'
           extensions: mbstring, intl, pdo_sqlite, bcmath, curl, openssl, fileinfo
           tools: composer:v2
-      - name: Update dependencies within Laravel 10 constraints
-        run: composer update --with-all-dependencies --no-interaction --no-progress
-      - name: Commit composer lock
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add composer.lock
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: actualizar dependencias backend compatibles"
-            git push origin HEAD:fix/premerge-corrective-20260918
-          fi
+      - name: Validate composer
+        run: composer validate --strict --no-check-publish
+        continue-on-error: true
+      - name: Install locked dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
       - name: PHP syntax
         run: find app routes config database tests -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Laravel bootstrap
+        run: |
+          cp -n .env.example .env 2>/dev/null || true
+          php artisan about
+          php artisan route:list
+        env:
+          APP_ENV: testing
+          APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ':memory:'
+          CACHE_DRIVER: array
+          SESSION_DRIVER: array
+          QUEUE_CONNECTION: sync
+          MAIL_MAILER: array
       - name: PHPUnit
         run: vendor/bin/phpunit --testdox
       - name: Composer security audit
