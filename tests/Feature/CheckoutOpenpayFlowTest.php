@@ -273,7 +273,7 @@ class CheckoutOpenpayFlowTest extends TestCase
                 'quantity' => 1,
             ]],
             'customer_name' => 'Cliente Prueba',
-            'customer_email' => 'cliente@example.com',
+            'customer_email' => 'cliente.test.angelita@gmail.com',
             'shipping_address' => 'Calle Prueba 123',
             'shipping_city' => 'Guadalajara',
             'shipping_country' => 'México',
