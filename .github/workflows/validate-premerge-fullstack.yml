@@ -1,0 +1,50 @@
+name: Validate corrective backend
+on:
+  push:
+    branches:
+      - fix/premerge-fullstack-20260918
+  pull_request:
+    branches:
+      - main
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/premerge-fullstack-20260918
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, intl, pdo_sqlite, bcmath, curl, openssl, fileinfo
+          tools: composer:v2
+      - run: composer install --prefer-dist --no-interaction --no-progress
+      - run: composer validate --strict --no-check-publish
+      - run: composer audit --locked
+      - run: find app routes config database tests -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Prepare test environment
+        run: |
+          printf '%s\n' \
+            'APP_NAME=AngelitaAudit' \
+            'APP_ENV=testing' \
+            'APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' \
+            'APP_DEBUG=false' \
+            'APP_URL=http://localhost' \
+            'FRONTEND_URL=http://localhost:5173' \
+            'LOG_CHANNEL=stderr' \
+            'DB_CONNECTION=sqlite' \
+            'DB_DATABASE=:memory:' \
+            'CACHE_STORE=array' \
+            'CACHE_DRIVER=array' \
+            'SESSION_DRIVER=array' \
+            'QUEUE_CONNECTION=sync' \
+            'MAIL_MAILER=array' \
+            'OPENPAY_SANDBOX=true' \
+            'OPENPAY_CURRENCY=MXN' \
+            'OPENPAY_MERCHANT_ID=test_merchant' \
+            'OPENPAY_PUBLIC_KEY=pk_test' \
+            'OPENPAY_PRIVATE_KEY=sk_test' \
+            'OPENPAY_REDIRECT_URL=https://example.test/checkout' > .env
+      - run: php artisan about
+      - run: php artisan route:list
+      - run: vendor/bin/phpunit --testdox
