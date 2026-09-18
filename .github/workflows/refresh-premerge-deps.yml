@@ -3,6 +3,9 @@ on:
   push:
     branches:
       - fix/premerge-fullstack-20260918
+  pull_request:
+    branches:
+      - main
 permissions:
   contents: write
 jobs:
