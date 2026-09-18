@@ -681,6 +681,8 @@ class CheckoutController extends Controller
             $lockedOrder->payment_reference = $reference;
             $lockedOrder->payment_transaction_id = null;
             $lockedOrder->payment_error = null;
+            $lockedOrder->stock_reserved_at = now();
+            $lockedOrder->stock_released_at = null;
             $lockedOrder->save();
 
             return null;
