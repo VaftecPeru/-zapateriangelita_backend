@@ -271,6 +271,7 @@ class CheckoutController extends Controller
             'order_id' => $openpayReference,
             'device_session_id' => $validated['device_session_id'],
             'use_3d_secure' => true,
+            'capture' => true,
             'redirect_url' => $redirectUrl,
             'customer' => [
                 'name' => $firstName,
@@ -352,9 +353,21 @@ class CheckoutController extends Controller
             }
 
             $openpayStatus = strtolower((string) $data['status']);
+            $paymentMethodType = strtolower((string) ($data['payment_method']['type'] ?? ''));
+            $paymentRedirectUrl = $data['payment_method']['url'] ?? null;
+
             $order->payment_transaction_id = $data['id'];
             $order->payment_reference = $openpayReference;
             $order->save();
+
+            Log::info('CHECKOUT_OPENPAY_CHARGE_CREATED', [
+                'order_id' => $order->id,
+                'transaction_id' => $order->payment_transaction_id,
+                'openpay_status' => $openpayStatus,
+                'payment_method_type' => $paymentMethodType,
+                'requires_redirect' => !empty($paymentRedirectUrl),
+                'currency' => strtoupper((string) ($data['currency'] ?? '')),
+            ]);
 
             if ($openpayStatus === 'completed') {
                 $account = $this->completePaidOrder($order, $guestCheckout);
@@ -370,8 +383,10 @@ class CheckoutController extends Controller
                 ], $account));
             }
 
-            if (in_array($openpayStatus, ['in_progress', 'charge_pending'], true)) {
-                $paymentRedirectUrl = $data['payment_method']['url'] ?? null;
+            if (
+                in_array($openpayStatus, ['in_progress', 'charge_pending'], true) ||
+                ($paymentMethodType === 'redirect' && !empty($paymentRedirectUrl))
+            ) {
                 $order->payment_status = 'processing';
                 $order->payment_error = null;
                 $order->save();
@@ -379,8 +394,9 @@ class CheckoutController extends Controller
                 return response()->json([
                     'ok' => true,
                     'message' => $paymentRedirectUrl
-                        ? 'Continúa con la verificación de seguridad.'
+                        ? 'Tarjeta válida. El cargo fue generado y requiere confirmación 3D Secure.'
                         : 'El pago está siendo procesado por Openpay.',
+                    'stage' => $paymentRedirectUrl ? '3ds_required' : 'charge',
                     'payment_status' => 'processing',
                     'order_id' => $order->id,
                     'order_code' => $order->code,
