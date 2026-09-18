@@ -113,7 +113,7 @@ class ProductController extends Controller
         return '/uploads/' . $subfolder . '/' . $filename;
     }
 
-    private function syncVariants(Product $product): void
+    private function syncVariants(Product $product, array $existingSizeStock = []): void
     {
         $product->sizes()->delete();
         $product->colors()->delete();
@@ -127,7 +127,12 @@ class ProductController extends Controller
             ProductSize::create([
                 'product_id' => $product->id,
                 'size' => $size,
-                'stock' => (int) $product->stock,
+                // Al editar un producto no se debe reponer inventario vendido.
+                // Conservamos el stock real de las tallas existentes. Solo una
+                // talla realmente nueva parte del stock maestro configurado.
+                'stock' => array_key_exists($size, $existingSizeStock)
+                    ? max(0, (int) $existingSizeStock[$size])
+                    : max(0, (int) $product->stock),
             ]);
         }
 
@@ -404,9 +409,48 @@ class ProductController extends Controller
                 }
             }
 
-            DB::transaction(function () use ($product, $validated) {
+            $existingSizeStock = $product->sizes()
+                ->pluck('stock', 'size')
+                ->mapWithKeys(fn ($stock, $size) => [trim((string) $size) => (int) $stock])
+                ->all();
+
+            $originalSizes = collect(preg_split('/[,|]+/', (string) $product->size))
+                ->map(fn ($size) => trim($size))
+                ->filter()
+                ->values()
+                ->all();
+            $originalColors = collect(preg_split('/[,\/|]+/', (string) $product->color))
+                ->map(fn ($color) => trim($color))
+                ->filter()
+                ->values()
+                ->all();
+
+            DB::transaction(function () use ($product, $validated, $existingSizeStock, $originalSizes, $originalColors) {
                 $product->update($validated);
-                $this->syncVariants($product->fresh());
+                $freshProduct = $product->fresh();
+
+                $updatedSizes = collect(preg_split('/[,|]+/', (string) $freshProduct->size))
+                    ->map(fn ($size) => trim($size))
+                    ->filter()
+                    ->values()
+                    ->all();
+                $updatedColors = collect(preg_split('/[,\/|]+/', (string) $freshProduct->color))
+                    ->map(fn ($color) => trim($color))
+                    ->filter()
+                    ->values()
+                    ->all();
+
+                sort($originalSizes);
+                sort($updatedSizes);
+                sort($originalColors);
+                sort($updatedColors);
+
+                // Editar precio, imágenes, descripción u otros datos no debe
+                // reconstruir tallas ni reponer stock. Solo sincronizamos cuando
+                // cambió realmente la estructura de tallas/colores.
+                if ($originalSizes !== $updatedSizes || $originalColors !== $updatedColors) {
+                    $this->syncVariants($freshProduct, $existingSizeStock);
+                }
             });
             $this->deleteUploadImages(array_merge($previousImages, $previousColorImages), $keptImages);
             $product->refresh();
