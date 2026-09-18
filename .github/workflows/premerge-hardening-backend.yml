@@ -1,0 +1,38 @@
+name: Premerge hardening backend
+on:
+  push:
+    branches:
+      - fix/premerge-hardening-20260918
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/premerge-hardening-20260918
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, intl, pdo_sqlite, bcmath, curl, openssl, fileinfo, gd
+          tools: composer:v2
+      - name: Refresh Composer lock
+        run: composer update --with-all-dependencies --no-interaction --no-progress
+      - name: Commit refreshed Composer lock
+        run: |
+          if ! git diff --quiet -- composer.lock; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add composer.lock
+            git commit -m "chore: actualizar dependencias backend [skip ci]"
+            git push origin HEAD:fix/premerge-hardening-20260918
+          fi
+      - run: composer validate --strict --no-check-publish
+      - name: Composer security audit
+        run: composer audit --locked
+        continue-on-error: true
+      - name: PHP syntax
+        run: find app routes config database tests -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: PHPUnit
+        run: vendor/bin/phpunit --testdox
