@@ -1,0 +1,27 @@
+name: Build backend vendor ZIP
+on:
+  pull_request:
+    branches:
+      - main
+jobs:
+  vendor:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, intl, pdo_mysql, bcmath, curl, openssl, fileinfo
+          tools: composer:v2
+      - name: Install production dependencies
+        run: composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-progress
+      - name: Package vendor directory
+        run: zip -r vendor-zapateria-angelita-backend-main-20260918.zip vendor
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vendor-zapateria-angelita-backend-main-20260918
+          path: vendor-zapateria-angelita-backend-main-20260918.zip
+          if-no-files-found: error
+          retention-days: 7
