@@ -155,15 +155,17 @@ foreach ($validated['items'] as $item) {
             foreach ($orderItems as $item) {
                 OrderItem::create(array_merge($item, ['order_id' => $order->id]));
 
-                // Descontar stock
+                // Mantener sincronizado el stock maestro y el stock por talla.
                 $product = Product::find($item['product_id']);
-                if (!empty($item['size'])) {
-                    $productSize = $product->sizes()->where('size', $item['size'])->first();
-                    if ($productSize) {
-                        $productSize->decrement('stock', $item['quantity']);
-                    }
-                } elseif ($product) {
+                if ($product) {
                     $product->decrement('stock', $item['quantity']);
+
+                    if (!empty($item['size'])) {
+                        $productSize = $product->sizes()->where('size', $item['size'])->first();
+                        if ($productSize) {
+                            $productSize->decrement('stock', $item['quantity']);
+                        }
+                    }
                 }
             }
 

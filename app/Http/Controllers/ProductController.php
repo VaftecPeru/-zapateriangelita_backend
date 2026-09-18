@@ -47,25 +47,44 @@ class ProductController extends Controller
 
         $path = parse_url($image, PHP_URL_PATH) ?: $image;
         $path = '/' . ltrim($path, '/');
-        if (!str_starts_with($path, '/uploads/')) {
-            return null;
+
+        $relativePath = null;
+        if (str_starts_with($path, '/api/media/')) {
+            $relativePath = ltrim(substr($path, strlen('/api/media/')), '/');
+        } elseif (str_starts_with($path, '/storage/')) {
+            $relativePath = ltrim(substr($path, strlen('/storage/')), '/');
+        } elseif (str_starts_with($path, '/uploads/')) {
+            $relativePath = ltrim($path, '/');
         }
 
-        $fullPath = realpath(public_path(ltrim($path, '/')));
-        $uploadsPath = realpath(public_path('uploads'));
-        if (!$fullPath || !$uploadsPath || !str_starts_with($fullPath, $uploadsPath . DIRECTORY_SEPARATOR)) {
-            return null;
+        if ($relativePath) {
+            $storageRoot = realpath(storage_path('app/public'));
+            $storageFile = realpath(storage_path('app/public/' . $relativePath));
+            if ($storageRoot && $storageFile && str_starts_with($storageFile, $storageRoot . DIRECTORY_SEPARATOR)) {
+                return $storageFile;
+            }
         }
 
-        return $fullPath;
+        // Compatibilidad con imágenes antiguas guardadas en public/uploads.
+        if (str_starts_with($path, '/uploads/')) {
+            $legacyRoot = realpath(public_path('uploads'));
+            $legacyFile = realpath(public_path(ltrim($path, '/')));
+            if ($legacyRoot && $legacyFile && str_starts_with($legacyFile, $legacyRoot . DIRECTORY_SEPARATOR)) {
+                return $legacyFile;
+            }
+        }
+
+        return null;
     }
 
     private function optimizeImage($file, $subfolder = 'products')
     {
         $mime = $file->getMimeType();
         $sourcePath = $file->getPathname();
-        $filename = uniqid('prod_') . '.webp';
-        $uploadPath = public_path('uploads/' . $subfolder);
+        $filename = uniqid('prod_', true) . '.webp';
+
+        // Persistir fuera de public/ evita perder imágenes al actualizar código en cPanel.
+        $uploadPath = storage_path('app/public/uploads/' . $subfolder);
 
         if (!file_exists($uploadPath)) {
             mkdir($uploadPath, 0755, true);
@@ -82,7 +101,7 @@ class ProductController extends Controller
 
         if (!$image) {
             $path = $file->store($subfolder, 'uploads');
-            return '/uploads/' . ltrim($path, '/');
+            return '/api/media/uploads/' . ltrim($path, '/');
         }
 
         $width = imagesx($image);
@@ -91,7 +110,7 @@ class ProductController extends Controller
 
         if ($width > $maxWidth) {
             $newWidth = $maxWidth;
-            $newHeight = ($height / $width) * $newWidth;
+            $newHeight = (int) round(($height / $width) * $newWidth);
             $newImage = imagecreatetruecolor($newWidth, $newHeight);
             imagealphablending($newImage, false);
             imagesavealpha($newImage, true);
@@ -102,18 +121,18 @@ class ProductController extends Controller
 
         $finalPath = $uploadPath . '/' . $filename;
         if (function_exists('imagewebp')) {
-            imagewebp($image, $finalPath, 80);
+            imagewebp($image, $finalPath, 82);
         } else {
             $filename = str_replace('.webp', '.jpg', $filename);
             $finalPath = $uploadPath . '/' . $filename;
-            imagejpeg($image, $finalPath, 80);
+            imagejpeg($image, $finalPath, 82);
         }
 
         imagedestroy($image);
-        return '/uploads/' . $subfolder . '/' . $filename;
+        return '/api/media/uploads/' . $subfolder . '/' . $filename;
     }
 
-    private function syncVariants(Product $product): void
+    private function syncVariants(Product $product, array $existingSizeStock = []): void
     {
         $product->sizes()->delete();
         $product->colors()->delete();
@@ -127,7 +146,12 @@ class ProductController extends Controller
             ProductSize::create([
                 'product_id' => $product->id,
                 'size' => $size,
-                'stock' => (int) $product->stock,
+                // Al editar un producto no se debe reponer inventario vendido.
+                // Conservamos el stock real de las tallas existentes. Solo una
+                // talla realmente nueva parte del stock maestro configurado.
+                'stock' => array_key_exists($size, $existingSizeStock)
+                    ? max(0, (int) $existingSizeStock[$size])
+                    : max(0, (int) $product->stock),
             ]);
         }
 
@@ -404,9 +428,48 @@ class ProductController extends Controller
                 }
             }
 
-            DB::transaction(function () use ($product, $validated) {
+            $existingSizeStock = $product->sizes()
+                ->pluck('stock', 'size')
+                ->mapWithKeys(fn ($stock, $size) => [trim((string) $size) => (int) $stock])
+                ->all();
+
+            $originalSizes = collect(preg_split('/[,|]+/', (string) $product->size))
+                ->map(fn ($size) => trim($size))
+                ->filter()
+                ->values()
+                ->all();
+            $originalColors = collect(preg_split('/[,\/|]+/', (string) $product->color))
+                ->map(fn ($color) => trim($color))
+                ->filter()
+                ->values()
+                ->all();
+
+            DB::transaction(function () use ($product, $validated, $existingSizeStock, $originalSizes, $originalColors) {
                 $product->update($validated);
-                $this->syncVariants($product->fresh());
+                $freshProduct = $product->fresh();
+
+                $updatedSizes = collect(preg_split('/[,|]+/', (string) $freshProduct->size))
+                    ->map(fn ($size) => trim($size))
+                    ->filter()
+                    ->values()
+                    ->all();
+                $updatedColors = collect(preg_split('/[,\/|]+/', (string) $freshProduct->color))
+                    ->map(fn ($color) => trim($color))
+                    ->filter()
+                    ->values()
+                    ->all();
+
+                sort($originalSizes);
+                sort($updatedSizes);
+                sort($originalColors);
+                sort($updatedColors);
+
+                // Editar precio, imágenes, descripción u otros datos no debe
+                // reconstruir tallas ni reponer stock. Solo sincronizamos cuando
+                // cambió realmente la estructura de tallas/colores.
+                if ($originalSizes !== $updatedSizes || $originalColors !== $updatedColors) {
+                    $this->syncVariants($freshProduct, $existingSizeStock);
+                }
             });
             $this->deleteUploadImages(array_merge($previousImages, $previousColorImages), $keptImages);
             $product->refresh();

@@ -444,16 +444,44 @@ class CheckoutController extends Controller
         ]);
 
         $context = $this->resolveCheckoutContext($validated['checkout_token'], (int) $validated['order_id']);
-        if (!$context) {
-            return response()->json([
-                'message' => 'La sesión de compra no es válida o ha vencido.',
-                'error_code' => 'CHECKOUT_TOKEN_INVALID',
-            ], 403);
-        }
+        $recoveredSession = false;
 
-        /** @var Order $order */
-        $order = $context['order'];
-        $guestCheckout = $context['guest'];
+        if ($context) {
+            /** @var Order $order */
+            $order = $context['order'];
+            $guestCheckout = $context['guest'];
+        } else {
+            // Recuperación segura del retorno 3D Secure:
+            // si el token local ya no puede descifrarse (por una sesión antigua,
+            // despliegue o rotación de APP_KEY), nunca confiamos solo en order_id.
+            // Exigimos que el transaction_id de alta entropía coincida exactamente
+            // con la transacción que ya quedó asociada al pedido antes del redirect.
+            $order = Order::find((int) $validated['order_id']);
+            $storedTransactionId = (string) ($order?->payment_transaction_id ?? '');
+            $providedTransactionId = (string) $validated['transaction_id'];
+
+            $canRecover = $order
+                && $storedTransactionId !== ''
+                && $order->payment_reference
+                && hash_equals($storedTransactionId, $providedTransactionId)
+                && in_array((string) $order->payment_status, ['processing', 'paid'], true);
+
+            if (!$canRecover) {
+                return response()->json([
+                    'message' => 'La sesión de compra no es válida o ha vencido.',
+                    'error_code' => 'CHECKOUT_TOKEN_INVALID',
+                ], 403);
+            }
+
+            $guestCheckout = empty($order->user_id);
+            $recoveredSession = true;
+
+            Log::warning('CHECKOUT_3DS_SESSION_RECOVERED', [
+                'order_id' => $order->id,
+                'payment_status' => $order->payment_status,
+                'has_transaction_id' => true,
+            ]);
+        }
 
         if (
             !$order->payment_transaction_id ||
@@ -467,13 +495,20 @@ class CheckoutController extends Controller
 
         if ($order->payment_status === 'paid') {
             $account = $this->completePaidOrder($order, $guestCheckout);
+            if ($recoveredSession) {
+                $account = $this->sanitizeRecoveredSessionResponse($account);
+            }
+
             return response()->json(array_merge([
                 'ok' => true,
                 'payment_status' => 'paid',
                 'order_id' => $order->id,
                 'order_code' => $order->code,
                 'transaction_id' => $order->payment_transaction_id,
-                'message' => 'Pago confirmado.',
+                'session_recovered' => $recoveredSession,
+                'message' => $recoveredSession
+                    ? 'Pago confirmado. Por seguridad, inicia sesión para revisar tu compra.'
+                    : 'Pago confirmado.',
             ], $account));
         }
 
@@ -524,6 +559,10 @@ class CheckoutController extends Controller
 
             if ($openpayStatus === 'completed') {
                 $account = $this->completePaidOrder($order, $guestCheckout);
+                if ($recoveredSession) {
+                    $account = $this->sanitizeRecoveredSessionResponse($account);
+                }
+
                 return response()->json(array_merge([
                     'ok' => true,
                     'payment_status' => 'paid',
@@ -531,7 +570,10 @@ class CheckoutController extends Controller
                     'order_id' => $order->id,
                     'order_code' => $order->code,
                     'transaction_id' => $order->payment_transaction_id,
-                    'message' => 'Pago aprobado correctamente.',
+                    'session_recovered' => $recoveredSession,
+                    'message' => $recoveredSession
+                        ? 'Pago aprobado correctamente. Por seguridad, inicia sesión para revisar tu compra.'
+                        : 'Pago aprobado correctamente.',
                 ], $account));
             }
 
@@ -682,7 +724,7 @@ class CheckoutController extends Controller
     }
 
     /** Marca el pago, crea la cuenta si era invitado y devuelve datos de sesión. */
-    private function completePaidOrder(Order $order, bool $guestCheckout): array
+    private function completePaidOrder(Order $order, bool $guestCheckout, bool $issueSession = true): array
     {
         $createdUser = false;
         $temporaryPassword = null;
@@ -759,13 +801,19 @@ class CheckoutController extends Controller
             }
 
             $response['account_created'] = true;
-            $response['auth_token'] = $user->createToken('checkout_auto_login')->plainTextToken;
-            $response['user'] = $user;
             $response['credentials_sent'] = true;
+
+            if ($issueSession) {
+                $response['auth_token'] = $user->createToken('checkout_auto_login')->plainTextToken;
+                $response['user'] = $user;
+            } else {
+                $response['requires_login'] = true;
+            }
+
             return $response;
         }
 
-        if ($guestCheckout && $user && $userWasAlreadyLinked) {
+        if ($issueSession && $guestCheckout && $user && $userWasAlreadyLinked) {
             // El checkout_token ya fue validado contra este pedido y el pedido ya
             // pertenece a este usuario. Reemitimos el token para que un retorno o
             // reintento de verificación 3D Secure siga terminando en Mis Compras
@@ -784,6 +832,187 @@ class CheckoutController extends Controller
         }
 
         return $response;
+    }
+
+    /**
+     * Un retorno 3D Secure recuperado por transaction_id puede confirmar el pago,
+     * pero no debe entregar un token de sesión ni datos de usuario porque el
+     * checkout_token original no pudo validarse. El cliente deberá autenticarse.
+     */
+    private function sanitizeRecoveredSessionResponse(array $account): array
+    {
+        unset(
+            $account['auth_token'],
+            $account['user'],
+            $account['auto_login_reissued']
+        );
+
+        $account['requires_login'] = true;
+        $account['session_recovered'] = true;
+
+        return $account;
+    }
+
+    /**
+     * Conciliación idempotente de Openpay.
+     *
+     * No confiamos en el payload recibido para cambiar el estado del pedido:
+     * usamos únicamente el transaction_id para consultar la transacción real
+     * en Openpay y después validamos ID, referencia, importe y moneda.
+     */
+    public function webhook(Request $request): JsonResponse
+    {
+        $rawBody = trim((string) $request->getContent());
+        $payload = $rawBody !== '' ? json_decode($rawBody, true) : null;
+
+        if (!is_array($payload)) {
+            $payload = $request->all();
+        }
+
+        if (!is_array($payload) || $payload === []) {
+            Log::warning('CHECKOUT_OPENPAY_WEBHOOK_INVALID');
+            return response()->json(['received' => false], 400);
+        }
+
+        $type = trim((string) ($payload['type'] ?? ''));
+        if ($type === '') {
+            return response()->json(['received' => false, 'message' => 'Falta el tipo de notificación.'], 422);
+        }
+
+        if ($type === 'verification') {
+            $verificationCode = trim((string) ($payload['verification_code'] ?? ''));
+            if ($verificationCode === '') {
+                return response()->json(['received' => false, 'message' => 'Falta el código de verificación.'], 422);
+            }
+
+            Log::channel('openpay')->info('OPENPAY_VERIFICATION_RECEIVED', [
+                'verification_code' => $verificationCode,
+            ]);
+
+            return response()->json(['received' => true, 'type' => 'verification']);
+        }
+
+        $transaction = is_array($payload['transaction'] ?? null)
+            ? $payload['transaction']
+            : [];
+
+        $transactionId = trim((string) ($transaction['id'] ?? ''));
+        $reference = trim((string) ($transaction['order_id'] ?? ''));
+
+        if ($transactionId === '') {
+            Log::warning('CHECKOUT_OPENPAY_WEBHOOK_WITHOUT_TRANSACTION', ['type' => $type]);
+            return response()->json(['received' => true, 'type' => $type]);
+        }
+
+        $order = Order::query()
+            ->where('payment_transaction_id', $transactionId)
+            ->when($reference !== '', function ($query) use ($reference) {
+                $query->orWhere('payment_reference', $reference);
+            })
+            ->first();
+
+        if (!$order) {
+            Log::warning('CHECKOUT_OPENPAY_WEBHOOK_ORDER_NOT_FOUND', [
+                'type' => $type,
+                'transaction_id' => $transactionId,
+            ]);
+            // Responder 200 evita una tormenta de reintentos por pedidos históricos.
+            return response()->json(['received' => true, 'type' => $type]);
+        }
+
+        $configurationErrors = $this->configurationErrors();
+        if ($configurationErrors) {
+            Log::error('CHECKOUT_OPENPAY_WEBHOOK_CONFIG_ERROR', [
+                'order_id' => $order->id,
+                'configuration_errors' => $configurationErrors,
+            ]);
+            return response()->json(['received' => false], 500);
+        }
+
+        try {
+            $merchantId = rawurlencode((string) config('openpay.merchant_id'));
+            $privateKey = (string) config('openpay.private_key');
+            $baseUrl = rtrim((string) config('openpay.base_url'), '/');
+            $encodedTransactionId = rawurlencode($transactionId);
+
+            $response = Http::connectTimeout(10)
+                ->timeout(30)
+                ->withoutRedirecting()
+                ->withBasicAuth($privateKey, '')
+                ->acceptJson()
+                ->get("{$baseUrl}/v1/{$merchantId}/charges/{$encodedTransactionId}");
+
+            $data = $response->json();
+
+            if (!$response->successful() || !is_array($data)) {
+                Log::warning('CHECKOUT_OPENPAY_WEBHOOK_RECONCILE_FAILED', [
+                    'order_id' => $order->id,
+                    'http_status' => $response->status(),
+                ]);
+                return response()->json(['received' => false], 502);
+            }
+
+            $receivedAmount = isset($data['amount']) && is_numeric($data['amount'])
+                ? (int) round((float) $data['amount'] * 100)
+                : null;
+            $expectedAmount = (int) round((float) $order->total * 100);
+            $expectedCurrency = strtoupper((string) config('openpay.currency', 'MXN'));
+
+            if (
+                (string) ($data['id'] ?? '') !== (string) $order->payment_transaction_id ||
+                (string) ($data['order_id'] ?? '') !== (string) $order->payment_reference ||
+                $receivedAmount !== $expectedAmount ||
+                strtoupper((string) ($data['currency'] ?? '')) !== $expectedCurrency
+            ) {
+                Log::warning('CHECKOUT_OPENPAY_WEBHOOK_MISMATCH', [
+                    'order_id' => $order->id,
+                    'transaction_id' => $transactionId,
+                ]);
+                return response()->json(['received' => false], 409);
+            }
+
+            $status = strtolower((string) ($data['status'] ?? ''));
+
+            if ($status === 'completed') {
+                $this->completePaidOrder($order, empty($order->user_id), false);
+
+                Log::info('CHECKOUT_OPENPAY_WEBHOOK_PAID', [
+                    'order_id' => $order->id,
+                    'transaction_id' => $transactionId,
+                ]);
+            } elseif (in_array($status, ['failed', 'cancelled'], true)) {
+                $this->releaseStockReservation(
+                    $order,
+                    (string) ($data['error_message'] ?? 'Openpay confirmó que el pago no fue aprobado.')
+                );
+
+                Log::info('CHECKOUT_OPENPAY_WEBHOOK_RELEASED', [
+                    'order_id' => $order->id,
+                    'transaction_id' => $transactionId,
+                    'openpay_status' => $status,
+                ]);
+            } else {
+                Log::info('CHECKOUT_OPENPAY_WEBHOOK_PROCESSING', [
+                    'order_id' => $order->id,
+                    'transaction_id' => $transactionId,
+                    'openpay_status' => $status,
+                ]);
+            }
+
+            return response()->json([
+                'received' => true,
+                'type' => $type,
+                'payment_status' => $status,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('CHECKOUT_OPENPAY_WEBHOOK_EXCEPTION', [
+                'order_id' => $order->id,
+                'exception' => get_class($e),
+                'line' => $e->getLine(),
+            ]);
+
+            return response()->json(['received' => false], 500);
+        }
     }
 
     private function resolveAuthenticatedUser(Request $request): ?User
@@ -919,7 +1148,7 @@ class CheckoutController extends Controller
             ],
             '3005' => [
                 'key' => 'ANTIFRAUD_REJECTED',
-                'title' => 'Tarjeta rechazada por seguridad',
+                'title' => 'Tarjeta rechazada por fraude/antifraude',
                 'message' => 'La tarjeta ha sido rechazada por el sistema antifraudes.',
             ],
             '3006' => [

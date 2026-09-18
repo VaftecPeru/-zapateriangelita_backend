@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\LeadController;
+use App\Http\Controllers\MediaController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\AdditionalServiceController;
@@ -48,6 +49,11 @@ Route::get('/login', function () {
     ], 401);
 })->name('login');
 
+// Imágenes persistentes de catálogo. No depende de public/storage ni de symlinks de cPanel.
+Route::middleware('throttle:240,1')
+    ->get('/media/{path}', [MediaController::class, 'show'])
+    ->where('path', '.*');
+
 // Rutas públicas
 Route::middleware('throttle:100,1')->group(function () {
     Route::get('/products', [ProductController::class, 'index']);
@@ -78,7 +84,7 @@ Route::get('/openpay/config', [
 
 // Openpay: recepción de notificaciones del proveedor.
 Route::post('/openpay/webhook', [
-    OpenpayController::class,
+    CheckoutController::class,
     'webhook',
 ])->name('openpay.webhook');
 
