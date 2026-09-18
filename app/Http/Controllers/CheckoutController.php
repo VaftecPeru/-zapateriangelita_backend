@@ -10,6 +10,7 @@ use App\Models\Product;
 use App\Models\ProductSize;
 use App\Models\User;
 use App\Services\CheckoutPaymentService;
+use App\Services\OpenpayReconciliationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -50,6 +51,16 @@ class CheckoutController extends Controller
             'payment_method' => 'nullable|string|max:50',
             'notes' => 'nullable|string|max:2000',
         ]);
+
+        try {
+            // Mantenimiento oportunista: concilia unas pocas reservas antiguas
+            // sin bloquear el checkout si Openpay no está disponible.
+            app(OpenpayReconciliationService::class)->reconcileStaleReservations(3);
+        } catch (\Throwable $e) {
+            Log::warning('OPENPAY_STALE_RECONCILIATION_SKIPPED', [
+                'exception' => get_class($e),
+            ]);
+        }
 
         $email = strtolower(trim($validated['customer_email']));
         $authUser = $this->resolveAuthenticatedUser($request);
@@ -212,12 +223,34 @@ class CheckoutController extends Controller
         }
 
         if ($order->payment_status === 'processing') {
-            return response()->json([
-                'ok' => false,
-                'payment_status' => 'processing',
-                'transaction_id' => $order->payment_transaction_id,
-                'message' => 'El pedido tiene un pago en proceso. No vuelvas a realizarlo.',
-            ], 409);
+            try {
+                app(OpenpayReconciliationService::class)->reconcileOrder($order, true);
+                $order->refresh();
+            } catch (\Throwable $e) {
+                Log::warning('OPENPAY_PROCESSING_RECONCILIATION_FAILED', [
+                    'order_id' => $order->id,
+                    'exception' => get_class($e),
+                ]);
+            }
+
+            if ($order->payment_status === 'paid') {
+                return response()->json([
+                    'ok' => true,
+                    'payment_status' => 'paid',
+                    'order_id' => $order->id,
+                    'order_code' => $order->code,
+                    'message' => 'Este pedido ya fue pagado.',
+                ]);
+            }
+
+            if ($order->payment_status === 'processing') {
+                return response()->json([
+                    'ok' => false,
+                    'payment_status' => 'processing',
+                    'transaction_id' => $order->payment_transaction_id,
+                    'message' => 'El pedido tiene un pago en proceso. No vuelvas a realizarlo.',
+                ], 409);
+            }
         }
 
         $amount = round((float) $order->total, 2);
