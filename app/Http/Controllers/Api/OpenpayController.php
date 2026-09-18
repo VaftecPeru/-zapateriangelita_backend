@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
+use App\Services\CheckoutStockService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\DB;
@@ -475,10 +476,6 @@ class OpenpayController extends Controller
 
     public function webhook(Request $request)
     {
-        /*
-         * Openpay envía el webhook como JSON. No dependemos de isJson()
-         * porque algunos proxies/WAF pueden modificar el Content-Type.
-         */
         $rawBody = trim((string) $request->getContent());
         $payload = $rawBody !== '' ? json_decode($rawBody, true) : null;
 
@@ -488,11 +485,7 @@ class OpenpayController extends Controller
 
         if (!is_array($payload) || empty($payload)) {
             $this->safeLog('warning', 'OPENPAY_WEBHOOK_EMPTY_OR_INVALID');
-
-            return response()->json([
-                'received' => false,
-                'message' => 'Notificación inválida.',
-            ], 400);
+            return response()->json(['received' => false, 'message' => 'Notificación inválida.'], 400);
         }
 
         $type = isset($payload['type']) && is_scalar($payload['type'])
@@ -500,12 +493,7 @@ class OpenpayController extends Controller
             : '';
 
         if ($type === '') {
-            $this->safeLog('warning', 'OPENPAY_WEBHOOK_WITHOUT_TYPE');
-
-            return response()->json([
-                'received' => false,
-                'message' => 'Falta el tipo de notificación.',
-            ], 422);
+            return response()->json(['received' => false, 'message' => 'Falta el tipo de notificación.'], 422);
         }
 
         try {
@@ -513,64 +501,130 @@ class OpenpayController extends Controller
 
             if ($type === 'verification') {
                 $verificationCode = $payload['verification_code'] ?? null;
-
                 if (!is_scalar($verificationCode) || trim((string) $verificationCode) === '') {
-                    $logger->warning('OPENPAY_VERIFICATION_WITHOUT_CODE');
-
-                    return response()->json([
-                        'received' => false,
-                        'message' => 'Falta el código de verificación.',
-                    ], 422);
+                    return response()->json(['received' => false, 'message' => 'Falta el código de verificación.'], 422);
                 }
 
-                $verificationCode = trim((string) $verificationCode);
-
                 $logger->info('OPENPAY_VERIFICATION_RECEIVED', [
-                    'verification_code' => $verificationCode,
                     'event_date' => isset($payload['event_date']) && is_scalar($payload['event_date'])
                         ? (string) $payload['event_date']
                         : null,
                 ]);
 
-                return response()->json([
-                    'received' => true,
-                    'type' => 'verification',
-                ], 200);
+                return response()->json(['received' => true, 'type' => 'verification'], 200);
             }
 
             $transaction = isset($payload['transaction']) && is_array($payload['transaction'])
                 ? $payload['transaction']
                 : [];
 
+            $transactionId = isset($transaction['id']) && is_scalar($transaction['id'])
+                ? trim((string) $transaction['id'])
+                : '';
+            $providerReference = isset($transaction['order_id']) && is_scalar($transaction['order_id'])
+                ? trim((string) $transaction['order_id'])
+                : '';
+
             $logger->info('OPENPAY_WEBHOOK_RECEIVED', [
                 'type' => $type,
                 'event_date' => isset($payload['event_date']) && is_scalar($payload['event_date'])
                     ? (string) $payload['event_date']
                     : null,
-                'transaction_id' => isset($transaction['id']) && is_scalar($transaction['id'])
-                    ? (string) $transaction['id']
-                    : null,
-                'order_id' => isset($transaction['order_id']) && is_scalar($transaction['order_id'])
-                    ? (string) $transaction['order_id']
-                    : null,
+                'transaction_id' => $transactionId ?: null,
+                'order_id' => $providerReference ?: null,
                 'status' => isset($transaction['status']) && is_scalar($transaction['status'])
                     ? (string) $transaction['status']
                     : null,
             ]);
 
-            return response()->json([
-                'received' => true,
-                'type' => $type,
-            ], 200);
+            if ($transactionId === '' || $providerReference === '') {
+                return response()->json(['received' => true, 'type' => $type, 'reconciled' => false], 200);
+            }
+
+            $order = Order::where('payment_reference', $providerReference)
+                ->orWhere('payment_transaction_id', $transactionId)
+                ->first();
+
+            if (!$order) {
+                $logger->warning('OPENPAY_WEBHOOK_ORDER_NOT_FOUND', [
+                    'type' => $type,
+                    'transaction_id' => $transactionId,
+                    'order_id' => $providerReference,
+                ]);
+
+                return response()->json(['received' => true, 'type' => $type, 'reconciled' => false], 200);
+            }
+
+            $receivedAmount = isset($transaction['amount']) && is_numeric($transaction['amount'])
+                ? (int) round((float) $transaction['amount'] * 100)
+                : null;
+            $expectedAmount = (int) round((float) $order->total * 100);
+            $receivedCurrency = strtoupper((string) ($transaction['currency'] ?? ''));
+            $expectedCurrency = strtoupper((string) config('openpay.currency', 'MXN'));
+
+            if (
+                (string) $order->payment_reference !== $providerReference ||
+                ($receivedAmount !== null && $receivedAmount !== $expectedAmount) ||
+                ($receivedCurrency !== '' && $receivedCurrency !== $expectedCurrency)
+            ) {
+                $logger->warning('OPENPAY_WEBHOOK_MISMATCH', [
+                    'order_id' => $order->id,
+                    'type' => $type,
+                    'transaction_id' => $transactionId,
+                ]);
+
+                return response()->json(['received' => true, 'type' => $type, 'reconciled' => false], 200);
+            }
+
+            if ($order->payment_transaction_id && !hash_equals((string) $order->payment_transaction_id, $transactionId)) {
+                $logger->warning('OPENPAY_WEBHOOK_TRANSACTION_MISMATCH', ['order_id' => $order->id]);
+                return response()->json(['received' => true, 'type' => $type, 'reconciled' => false], 200);
+            }
+
+            if (in_array($type, ['charge.succeeded', 'charge.completed'], true)) {
+                DB::transaction(function () use ($order, $transactionId) {
+                    $lockedOrder = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+
+                    if ($lockedOrder->payment_status === 'paid') {
+                        return;
+                    }
+
+                    $lockedOrder->payment_method = 'openpay';
+                    $lockedOrder->payment_transaction_id = $transactionId;
+                    $lockedOrder->payment_status = 'paid';
+                    $lockedOrder->payment_error = null;
+                    $lockedOrder->paid_at = $lockedOrder->paid_at ?: now();
+                    $lockedOrder->status = 'sin_preparar';
+                    $lockedOrder->save();
+                });
+
+                return response()->json(['received' => true, 'type' => $type, 'reconciled' => true], 200);
+            }
+
+            if (in_array($type, ['charge.failed', 'charge.cancelled'], true)) {
+                if (!$order->payment_transaction_id) {
+                    $order->payment_transaction_id = $transactionId;
+                    $order->save();
+                }
+
+                app(CheckoutStockService::class)->release(
+                    $order,
+                    (string) ($transaction['error_message'] ?? $transaction['description'] ?? 'El pago no fue aprobado por Openpay.')
+                );
+
+                return response()->json(['received' => true, 'type' => $type, 'reconciled' => true], 200);
+            }
+
+            return response()->json(['received' => true, 'type' => $type, 'reconciled' => false], 200);
         } catch (\Throwable $e) {
-            $this->safeLog('error', 'OPENPAY_WEBHOOK_WRITE_FAILED', [
+            $this->safeLog('error', 'OPENPAY_WEBHOOK_RECONCILIATION_FAILED', [
                 'exception' => get_class($e),
                 'line' => $e->getLine(),
             ]);
 
             return response()->json([
                 'received' => false,
-                'message' => 'No fue posible registrar la notificación.',
+                'message' => 'No fue posible conciliar la notificación.',
             ], 500);
         }
     }
