@@ -40,5 +40,27 @@ jobs:
         continue-on-error: true
       - name: PHP syntax
         run: find app routes config database tests -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Prepare Laravel test environment
+        run: |
+          touch /tmp/angelita-hardening.sqlite
+          printf '%s\n' \
+            'APP_NAME=AngelitaHardening' \
+            'APP_ENV=testing' \
+            'APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' \
+            'APP_DEBUG=false' \
+            'APP_URL=http://localhost' \
+            'LOG_CHANNEL=stderr' \
+            'DB_CONNECTION=sqlite' \
+            'DB_DATABASE=/tmp/angelita-hardening.sqlite' \
+            'CACHE_STORE=array' \
+            'CACHE_DRIVER=array' \
+            'SESSION_DRIVER=array' \
+            'QUEUE_CONNECTION=sync' \
+            'MAIL_MAILER=array' > .env
+      - name: Laravel bootstrap routes and migrations
+        run: |
+          php artisan about
+          php artisan route:list
+          php artisan migrate:fresh --force
       - name: PHPUnit
         run: vendor/bin/phpunit --testdox
