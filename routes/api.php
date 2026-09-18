@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\LeadController;
+use App\Http\Controllers\MediaController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\AdditionalServiceController;
@@ -47,6 +48,11 @@ Route::get('/login', function () {
         'message' => 'Unauthenticated.',
     ], 401);
 })->name('login');
+
+// Imágenes persistentes de catálogo. No requiere symlink public/storage en cPanel.
+Route::middleware('throttle:240,1')
+    ->get('/media/{path}', [MediaController::class, 'show'])
+    ->where('path', '.*');
 
 // Rutas públicas
 Route::middleware('throttle:100,1')->group(function () {

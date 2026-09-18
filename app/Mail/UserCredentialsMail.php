@@ -13,13 +13,13 @@ class UserCredentialsMail extends Mailable
     use Queueable, SerializesModels;
 
     public $user;
-    public $password;
+    public $passwordSetupUrl;
     public $order;
 
-    public function __construct($user, $password, $order = null)
+    public function __construct($user, string $passwordSetupUrl, $order = null)
     {
         $this->user = $user;
-        $this->password = $password;
+        $this->passwordSetupUrl = $passwordSetupUrl;
         $this->order = $order;
     }
 

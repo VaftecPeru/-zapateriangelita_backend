@@ -9,6 +9,8 @@ use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\ProductSize;
 use App\Models\User;
+use App\Services\CheckoutPaymentService;
+use App\Services\OpenpayReconciliationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -38,7 +40,7 @@ class CheckoutController extends Controller
             'items.*.color' => 'nullable|string|max:50',
             'items.*.quantity' => 'required|integer|min:1|max:100',
             'customer_name' => 'required|string|max:150',
-            'customer_email' => 'required|email|max:255',
+            'customer_email' => ['required', 'bail', 'string', 'max:255', 'regex:/^[^\\r\\n]+$/', 'email:rfc,dns'],
             'shipping_address' => 'required|string|max:255',
             'shipping_city' => 'required|string|max:100',
             'shipping_country' => 'required|string|max:100',
@@ -49,6 +51,16 @@ class CheckoutController extends Controller
             'payment_method' => 'nullable|string|max:50',
             'notes' => 'nullable|string|max:2000',
         ]);
+
+        try {
+            // Mantenimiento oportunista: concilia unas pocas reservas antiguas
+            // sin bloquear el checkout si Openpay no está disponible.
+            app(OpenpayReconciliationService::class)->reconcileStaleReservations(3);
+        } catch (\Throwable $e) {
+            Log::warning('OPENPAY_STALE_RECONCILIATION_SKIPPED', [
+                'exception' => get_class($e),
+            ]);
+        }
 
         $email = strtolower(trim($validated['customer_email']));
         $authUser = $this->resolveAuthenticatedUser($request);
@@ -211,12 +223,34 @@ class CheckoutController extends Controller
         }
 
         if ($order->payment_status === 'processing') {
-            return response()->json([
-                'ok' => false,
-                'payment_status' => 'processing',
-                'transaction_id' => $order->payment_transaction_id,
-                'message' => 'El pedido tiene un pago en proceso. No vuelvas a realizarlo.',
-            ], 409);
+            try {
+                app(OpenpayReconciliationService::class)->reconcileOrder($order, true);
+                $order->refresh();
+            } catch (\Throwable $e) {
+                Log::warning('OPENPAY_PROCESSING_RECONCILIATION_FAILED', [
+                    'order_id' => $order->id,
+                    'exception' => get_class($e),
+                ]);
+            }
+
+            if ($order->payment_status === 'paid') {
+                return response()->json([
+                    'ok' => true,
+                    'payment_status' => 'paid',
+                    'order_id' => $order->id,
+                    'order_code' => $order->code,
+                    'message' => 'Este pedido ya fue pagado.',
+                ]);
+            }
+
+            if ($order->payment_status === 'processing') {
+                return response()->json([
+                    'ok' => false,
+                    'payment_status' => 'processing',
+                    'transaction_id' => $order->payment_transaction_id,
+                    'message' => 'El pedido tiene un pago en proceso. No vuelvas a realizarlo.',
+                ], 409);
+            }
         }
 
         $amount = round((float) $order->total, 2);
@@ -444,16 +478,44 @@ class CheckoutController extends Controller
         ]);
 
         $context = $this->resolveCheckoutContext($validated['checkout_token'], (int) $validated['order_id']);
-        if (!$context) {
-            return response()->json([
-                'message' => 'La sesión de compra no es válida o ha vencido.',
-                'error_code' => 'CHECKOUT_TOKEN_INVALID',
-            ], 403);
-        }
+        $recoveredSession = false;
 
-        /** @var Order $order */
-        $order = $context['order'];
-        $guestCheckout = $context['guest'];
+        if ($context) {
+            /** @var Order $order */
+            $order = $context['order'];
+            $guestCheckout = $context['guest'];
+        } else {
+            // Recuperación segura del retorno 3D Secure:
+            // si el token local ya no puede descifrarse (por una sesión antigua,
+            // despliegue o rotación de APP_KEY), nunca confiamos solo en order_id.
+            // Exigimos que el transaction_id de alta entropía coincida exactamente
+            // con la transacción que ya quedó asociada al pedido antes del redirect.
+            $order = Order::find((int) $validated['order_id']);
+            $storedTransactionId = (string) ($order?->payment_transaction_id ?? '');
+            $providedTransactionId = (string) $validated['transaction_id'];
+
+            $canRecover = $order
+                && $storedTransactionId !== ''
+                && $order->payment_reference
+                && hash_equals($storedTransactionId, $providedTransactionId)
+                && in_array((string) $order->payment_status, ['processing', 'paid'], true);
+
+            if (!$canRecover) {
+                return response()->json([
+                    'message' => 'La sesión de compra no es válida o ha vencido.',
+                    'error_code' => 'CHECKOUT_TOKEN_INVALID',
+                ], 403);
+            }
+
+            $guestCheckout = empty($order->user_id);
+            $recoveredSession = true;
+
+            Log::warning('CHECKOUT_3DS_SESSION_RECOVERED', [
+                'order_id' => $order->id,
+                'payment_status' => $order->payment_status,
+                'has_transaction_id' => true,
+            ]);
+        }
 
         if (
             !$order->payment_transaction_id ||
@@ -467,13 +529,20 @@ class CheckoutController extends Controller
 
         if ($order->payment_status === 'paid') {
             $account = $this->completePaidOrder($order, $guestCheckout);
+            if ($recoveredSession) {
+                $account = $this->sanitizeRecoveredSessionResponse($account);
+            }
+
             return response()->json(array_merge([
                 'ok' => true,
                 'payment_status' => 'paid',
                 'order_id' => $order->id,
                 'order_code' => $order->code,
                 'transaction_id' => $order->payment_transaction_id,
-                'message' => 'Pago confirmado.',
+                'session_recovered' => $recoveredSession,
+                'message' => $recoveredSession
+                    ? 'Pago confirmado. Por seguridad, inicia sesión para revisar tu compra.'
+                    : 'Pago confirmado.',
             ], $account));
         }
 
@@ -524,6 +593,10 @@ class CheckoutController extends Controller
 
             if ($openpayStatus === 'completed') {
                 $account = $this->completePaidOrder($order, $guestCheckout);
+                if ($recoveredSession) {
+                    $account = $this->sanitizeRecoveredSessionResponse($account);
+                }
+
                 return response()->json(array_merge([
                     'ok' => true,
                     'payment_status' => 'paid',
@@ -531,7 +604,10 @@ class CheckoutController extends Controller
                     'order_id' => $order->id,
                     'order_code' => $order->code,
                     'transaction_id' => $order->payment_transaction_id,
-                    'message' => 'Pago aprobado correctamente.',
+                    'session_recovered' => $recoveredSession,
+                    'message' => $recoveredSession
+                        ? 'Pago aprobado correctamente. Por seguridad, inicia sesión para revisar tu compra.'
+                        : 'Pago aprobado correctamente.',
                 ], $account));
             }
 
@@ -647,143 +723,32 @@ class CheckoutController extends Controller
     /** Devuelve stock solo cuando un pago reservado falla de forma definitiva. */
     private function releaseStockReservation(Order $order, string $reason): void
     {
-        DB::transaction(function () use ($order, $reason) {
-            $lockedOrder = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
-            if ($lockedOrder->payment_status !== 'processing') {
-                return;
-            }
-
-            $items = OrderItem::where('order_id', $lockedOrder->id)
-                ->orderBy('product_id')
-                ->get();
-
-            foreach ($items as $item) {
-                $quantity = (int) $item->quantity;
-                $product = Product::whereKey($item->product_id)->lockForUpdate()->first();
-                if ($product) {
-                    $product->increment('stock', $quantity);
-                }
-
-                if (!empty($item->size)) {
-                    $sizeRow = ProductSize::where('product_id', $item->product_id)
-                        ->where('size', $item->size)
-                        ->lockForUpdate()
-                        ->first();
-                    if ($sizeRow) {
-                        $sizeRow->increment('stock', $quantity);
-                    }
-                }
-            }
-
-            $lockedOrder->payment_status = 'failed';
-            $lockedOrder->payment_error = $reason;
-            $lockedOrder->save();
-        });
+        app(CheckoutPaymentService::class)->releaseStockReservation($order, $reason);
     }
 
-    /** Marca el pago, crea la cuenta si era invitado y devuelve datos de sesión. */
+    /** Marca el pago, crea/vincula la cuenta y devuelve datos de sesión. */
     private function completePaidOrder(Order $order, bool $guestCheckout): array
     {
-        $createdUser = false;
-        $temporaryPassword = null;
+        return app(CheckoutPaymentService::class)->completePaidOrder($order, $guestCheckout);
+    }
 
-        $result = DB::transaction(function () use ($order, $guestCheckout, &$createdUser, &$temporaryPassword) {
-            $lockedOrder = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
-            // Si el pedido ya quedó vinculado a un usuario en una verificación previa,
-            // podemos reemitir una sesión de forma segura e idempotente. Esto cubre
-            // retornos/reintentos de 3D Secure después de que Openpay ya confirmó el pago.
-            $userWasAlreadyLinked = !empty($lockedOrder->user_id);
-            $user = $lockedOrder->user_id ? User::find($lockedOrder->user_id) : null;
+    /**
+     * Un retorno 3D Secure recuperado por transaction_id puede confirmar el pago,
+     * pero no debe entregar un token de sesión ni datos de usuario porque el
+     * checkout_token original no pudo validarse. El cliente deberá autenticarse.
+     */
+    private function sanitizeRecoveredSessionResponse(array $account): array
+    {
+        unset(
+            $account['auth_token'],
+            $account['user'],
+            $account['auto_login_reissued']
+        );
 
-            if (!$user && $guestCheckout) {
-                $email = strtolower(trim((string) $lockedOrder->customer_email));
-                $user = User::where('email', $email)->first();
+        $account['requires_login'] = true;
+        $account['session_recovered'] = true;
 
-                if (!$user) {
-                    $temporaryPassword = $this->generateTemporaryPassword();
-                    $user = User::create([
-                        'name' => $lockedOrder->customer_name ?: 'Cliente Angelita',
-                        'email' => $email,
-                        'password' => Hash::make($temporaryPassword),
-                        'phone' => $lockedOrder->shipping_phone,
-                        'role' => 'user',
-                    ]);
-                    $createdUser = true;
-                }
-
-                $lockedOrder->user_id = $user->id;
-            }
-
-            $lockedOrder->payment_method = 'openpay';
-            $lockedOrder->payment_status = 'paid';
-            $lockedOrder->payment_error = null;
-            $lockedOrder->paid_at = $lockedOrder->paid_at ?: now();
-            $lockedOrder->status = 'sin_preparar';
-            $lockedOrder->save();
-
-            if ($createdUser && $user) {
-                Address::create([
-                    'user_id' => $user->id,
-                    'full_name' => $lockedOrder->customer_name,
-                    'phone' => $lockedOrder->shipping_phone,
-                    'country' => $lockedOrder->shipping_country,
-                    'state' => $lockedOrder->shipping_state,
-                    'municipality' => $lockedOrder->shipping_municipality,
-                    'city' => $lockedOrder->shipping_city,
-                    'postal_code' => $lockedOrder->shipping_postal_code,
-                    'address' => $lockedOrder->shipping_address,
-                    'is_default' => true,
-                ]);
-            }
-
-            return [$lockedOrder->fresh('items'), $user, $userWasAlreadyLinked];
-        });
-
-        /** @var Order $paidOrder */
-        [$paidOrder, $user, $userWasAlreadyLinked] = $result;
-
-        $response = [
-            'account_created' => false,
-            'requires_login' => false,
-        ];
-
-        if ($createdUser && $user && $temporaryPassword) {
-            try {
-                Mail::to($user->email)->send(new UserCredentialsMail($user, $temporaryPassword, $paidOrder));
-            } catch (\Throwable $e) {
-                Log::error('CHECKOUT_CREDENTIAL_EMAIL_FAILED', [
-                    'order_id' => $paidOrder->id,
-                    'user_id' => $user->id,
-                    'exception' => get_class($e),
-                ]);
-            }
-
-            $response['account_created'] = true;
-            $response['auth_token'] = $user->createToken('checkout_auto_login')->plainTextToken;
-            $response['user'] = $user;
-            $response['credentials_sent'] = true;
-            return $response;
-        }
-
-        if ($guestCheckout && $user && $userWasAlreadyLinked) {
-            // El checkout_token ya fue validado contra este pedido y el pedido ya
-            // pertenece a este usuario. Reemitimos el token para que un retorno o
-            // reintento de verificación 3D Secure siga terminando en Mis Compras
-            // con el cliente autenticado, sin generar otra cuenta ni otra compra.
-            $response['auth_token'] = $user->createToken('checkout_auto_login')->plainTextToken;
-            $response['user'] = $user;
-            $response['auto_login_reissued'] = true;
-            return $response;
-        }
-
-        if ($guestCheckout && $user) {
-            // Si la cuenta apareció entre la creación del pedido y el pago por una
-            // condición de carrera y aún no estaba vinculada al pedido, exigimos
-            // login para no entregar acceso a una cuenta ajena.
-            $response['requires_login'] = true;
-        }
-
-        return $response;
+        return $account;
     }
 
     private function resolveAuthenticatedUser(Request $request): ?User
@@ -846,11 +811,6 @@ class CheckoutController extends Controller
             'order' => $order,
             'guest' => (bool) ($payload['guest'] ?? true),
         ];
-    }
-
-    private function generateTemporaryPassword(): string
-    {
-        return Str::lower(Str::random(8)) . 'A7!';
     }
 
     private function generateOrderCode(): string

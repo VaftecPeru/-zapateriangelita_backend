@@ -34,4 +34,6 @@ return [
         'OPENPAY_REDIRECT_URL',
         'https://zapateriangelita.com/checkout'
     ),
+    'reservation_ttl_minutes' => (int) env('OPENPAY_RESERVATION_TTL_MINUTES', 45),
+    'reservation_release_minutes' => (int) env('OPENPAY_RESERVATION_RELEASE_MINUTES', 90),
 ];

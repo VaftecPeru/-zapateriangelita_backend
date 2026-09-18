@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
+use App\Services\OpenpayReconciliationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\DB;
@@ -542,25 +543,43 @@ class OpenpayController extends Controller
                 ? $payload['transaction']
                 : [];
 
+            $transactionId = isset($transaction['id']) && is_scalar($transaction['id'])
+                ? trim((string) $transaction['id'])
+                : null;
+            $reference = isset($transaction['order_id']) && is_scalar($transaction['order_id'])
+                ? trim((string) $transaction['order_id'])
+                : null;
+
             $logger->info('OPENPAY_WEBHOOK_RECEIVED', [
                 'type' => $type,
                 'event_date' => isset($payload['event_date']) && is_scalar($payload['event_date'])
                     ? (string) $payload['event_date']
                     : null,
-                'transaction_id' => isset($transaction['id']) && is_scalar($transaction['id'])
-                    ? (string) $transaction['id']
-                    : null,
-                'order_id' => isset($transaction['order_id']) && is_scalar($transaction['order_id'])
-                    ? (string) $transaction['order_id']
-                    : null,
+                'transaction_id' => $transactionId,
+                'order_id' => $reference,
                 'status' => isset($transaction['status']) && is_scalar($transaction['status'])
                     ? (string) $transaction['status']
                     : null,
             ]);
 
+            $reconciledStatus = null;
+            if (str_starts_with($type, 'charge.')) {
+                // No confiamos ciegamente en el payload: el servicio vuelve a
+                // consultar el cargo a Openpay y valida referencia, importe y moneda.
+                $reconciledStatus = app(OpenpayReconciliationService::class)
+                    ->reconcileWebhook($transactionId, $reference);
+
+                $logger->info('OPENPAY_WEBHOOK_RECONCILED', [
+                    'type' => $type,
+                    'transaction_id' => $transactionId,
+                    'reconciled_status' => $reconciledStatus,
+                ]);
+            }
+
             return response()->json([
                 'received' => true,
                 'type' => $type,
+                'reconciled_status' => $reconciledStatus,
             ], 200);
         } catch (\Throwable $e) {
             $this->safeLog('error', 'OPENPAY_WEBHOOK_WRITE_FAILED', [
@@ -570,8 +589,8 @@ class OpenpayController extends Controller
 
             return response()->json([
                 'received' => false,
-                'message' => 'No fue posible registrar la notificación.',
-            ], 500);
+                'message' => 'No fue posible conciliar la notificación. Openpay puede reintentarlo.',
+            ], 503);
         }
     }
 

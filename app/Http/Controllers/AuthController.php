@@ -16,7 +16,7 @@ class AuthController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'name' => ['required', 'string', 'max:255', 'regex:/^[\pL]+(?:[\s\'-][\pL]+)*$/u'],
-            'email' => 'required|string|email:rfc,dns|max:255|unique:users|regex:/^[^@]+@[^@]+\.[^@]{2,}$/',
+            'email' => ['required', 'bail', 'string', 'max:255', 'regex:/^[^\\r\\n]+$/', 'email:rfc,dns', 'unique:users,email'],
             'password' => 'required|string|min:6|regex:/[A-Z]/|regex:/[0-9]/|confirmed',
             'gender' => 'required|string',
             'birthdate' => 'required|date|before_or_equal:' . now()->subYears(18)->format('Y-m-d'),
@@ -41,7 +41,7 @@ class AuthController extends Controller
         ]);
 
         try {
-            Mail::to($user->email)->send(new WelcomeUserMail($user, $request->password));
+            Mail::to($user->email)->send(new WelcomeUserMail($user));
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Error sending welcome email to ' . $user->email . ': ' . $e->getMessage());
         }
@@ -70,7 +70,7 @@ class AuthController extends Controller
     public function login(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'email' => 'required|string|email',
+            'email' => ['required', 'bail', 'string', 'max:255', 'regex:/^[^\\r\\n]+$/', 'email'],
             'password' => 'required|string',
         ]);
 
@@ -119,26 +119,29 @@ class AuthController extends Controller
     public function forgotPassword(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'email' => 'required|email|exists:users,email'
+            'email' => ['required', 'bail', 'string', 'max:255', 'regex:/^[^\\r\\n]+$/', 'email'],
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
+            return response()->json([
+                'message' => 'Si el correo está registrado, recibirás un enlace para restablecer tu contraseña.'
+            ]);
         }
 
-        $status = \Illuminate\Support\Facades\Password::broker()->sendResetLink(
-            $request->only('email')
+        \Illuminate\Support\Facades\Password::broker()->sendResetLink(
+            ['email' => strtolower(trim((string) $request->email))]
         );
 
-        return $status === \Illuminate\Support\Facades\Password::RESET_LINK_SENT
-            ? response()->json(['message' => __($status)])
-            : response()->json(['message' => __($status)], 400);
+        // Respuesta uniforme para evitar enumeración de cuentas.
+        return response()->json([
+            'message' => 'Si el correo está registrado, recibirás un enlace para restablecer tu contraseña.'
+        ]);
     }
 
     public function resetPassword(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'email' => 'required|email',
+            'email' => ['required', 'bail', 'string', 'max:255', 'regex:/^[^\\r\\n]+$/', 'email'],
             'password' => 'required|string|min:6|confirmed',
             'token' => 'required'
         ]);

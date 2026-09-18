@@ -1,0 +1,53 @@
+name: Corrective backend verification
+on:
+  push:
+    branches:
+      - fix/premerge-corrective-20260918
+  pull_request:
+    branches:
+      - main
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/premerge-corrective-20260918
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, intl, pdo_sqlite, bcmath, curl, openssl, fileinfo
+          tools: composer:v2
+      - name: Validate composer
+        run: composer validate --strict --no-check-publish
+        continue-on-error: true
+      - name: Install locked dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+      - name: PHP syntax
+        run: find app routes config database tests -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Laravel bootstrap
+        run: |
+          cp -n .env.example .env 2>/dev/null || true
+          php artisan about
+          php artisan route:list
+        env:
+          APP_ENV: testing
+          APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ':memory:'
+          CACHE_DRIVER: array
+          SESSION_DRIVER: array
+          QUEUE_CONNECTION: sync
+          MAIL_MAILER: array
+      - name: PHPUnit
+        run: vendor/bin/phpunit --testdox
+      - name: Test log diagnostics
+        if: failure()
+        run: |
+          if [ -f storage/logs/laravel.log ]; then
+            tail -n 120 storage/logs/laravel.log
+          fi
+      - name: Composer security audit
+        if: always()
+        run: composer audit --locked
+        continue-on-error: true
