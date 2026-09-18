@@ -19,6 +19,7 @@ class CheckoutOpenpayFlowTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->withoutExceptionHandling();
 
         config([
             'database.default' => 'sqlite',
