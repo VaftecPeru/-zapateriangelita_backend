@@ -35,7 +35,7 @@ class OpenpayDeclineMappingTest extends TestCase
             '3002 expired' => ['3002', 'Tarjeta expirada', 'CARD_EXPIRED'],
             '3003 funds' => ['3003', 'Fondos insuficientes', 'INSUFFICIENT_FUNDS'],
             '3004 stolen' => ['3004', 'Tarjeta robada', 'CARD_REPORTED_STOLEN'],
-            '3005 antifraud' => ['3005', 'Tarjeta rechazada por seguridad', 'ANTIFRAUD_REJECTED'],
+            '3005 antifraud' => ['3005', 'Tarjeta rechazada por fraude/antifraude', 'ANTIFRAUD_REJECTED'],
         ];
     }
 }
