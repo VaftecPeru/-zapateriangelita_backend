@@ -3,6 +3,9 @@ on:
   push:
     branches:
       - fix/persistent-product-images-20260918
+  pull_request:
+    branches:
+      - main
 jobs:
   syntax:
     runs-on: ubuntu-latest
