@@ -1,0 +1,52 @@
+name: Fullstack Audit Backend Candidate
+on:
+  push:
+    branches:
+      - audit/fullstack-ux-20260918
+  pull_request:
+    branches:
+      - main
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, intl, pdo_sqlite, bcmath, curl, openssl, fileinfo
+          tools: composer:v2
+      - name: Composer validate
+        run: composer validate --strict --no-check-publish
+        continue-on-error: true
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+      - name: Composer security audit
+        run: composer audit --locked
+        continue-on-error: true
+      - name: PHP syntax all application files
+        run: find app routes config database -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Prepare audit environment
+        run: |
+          touch /tmp/angelita-audit.sqlite
+          printf '%s\n' \
+            'APP_NAME=AngelitaAudit' \
+            'APP_ENV=testing' \
+            'APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' \
+            'APP_DEBUG=false' \
+            'APP_URL=http://localhost' \
+            'LOG_CHANNEL=stderr' \
+            'DB_CONNECTION=sqlite' \
+            'DB_DATABASE=/tmp/angelita-audit.sqlite' \
+            'CACHE_DRIVER=array' \
+            'SESSION_DRIVER=array' \
+            'QUEUE_CONNECTION=sync' \
+            'MAIL_MAILER=array' > .env
+      - name: Laravel bootstrap and routes
+        run: |
+          php artisan about
+          php artisan route:list
+        continue-on-error: true
+      - name: PHPUnit
+        run: vendor/bin/phpunit --testdox
+        continue-on-error: true
