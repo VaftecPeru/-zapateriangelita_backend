@@ -1,5 +1,8 @@
 name: Premerge hardening backend
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - fix/premerge-hardening-20260918
