@@ -117,12 +117,11 @@
             <h2>¡Hola, {{ $user->name }}!</h2>
             <p>Queríamos darte una cálida bienvenida a Zapateriangelita. Tu cuenta ha sido creada exitosamente y ahora
                 eres parte de nuestra exclusiva comunidad.</p>
-            <p>Para tu comodidad, hemos adjuntado a continuación las credenciales que ingresaste durante el registro.
-                Por favor, mantenlas en un lugar seguro.</p>
+            <p>Tu cuenta quedó creada correctamente. Por seguridad nunca enviamos ni almacenamos tu contraseña en correos electrónicos.</p>
 
             <div class="credentials-box">
                 <p><strong>Email:</strong> {{ $user->email }}</p>
-                <p><strong>Contraseña:</strong> {{ $password }}</p>
+                <p>Usa la contraseña que definiste durante el registro para iniciar sesión.</p>
             </div>
 
             <div class="button-container">
