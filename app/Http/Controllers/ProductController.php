@@ -307,11 +307,54 @@ class ProductController extends Controller
     }
 
 
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
+        $validated = $request->validate([
+            'search' => ['nullable', 'string', 'max:120'],
+            'category_id' => ['nullable', 'integer', 'exists:categories,id'],
+            'brand_id' => ['nullable', 'integer', 'exists:brands,id'],
+            'stock_state' => ['nullable', 'in:available,low,out'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:200'],
+        ]);
+
+        $query = Product::with(
+            'brand:id,name',
+            'category:id,name,slug',
+            'subcategory:id,name',
+            'sizes',
+            'colors',
+            'variantStocks',
+        );
+
+        $search = trim((string) ($validated['search'] ?? ''));
+        if ($search !== '') {
+            $query->where(function ($builder) use ($search) {
+                $builder
+                    ->where('product_code', 'like', '%' . $search . '%')
+                    ->orWhere('name', 'like', '%' . $search . '%')
+                    ->orWhere('model', 'like', '%' . $search . '%')
+                    ->orWhereHas('brand', fn ($brand) => $brand->where('name', 'like', '%' . $search . '%'));
+            });
+        }
+
+        if (!empty($validated['category_id'])) {
+            $query->where('category_id', $validated['category_id']);
+        }
+
+        if (!empty($validated['brand_id'])) {
+            $query->where('brand_id', $validated['brand_id']);
+        }
+
+        if (($validated['stock_state'] ?? null) === 'available') {
+            $query->where('stock', '>', 5);
+        } elseif (($validated['stock_state'] ?? null) === 'low') {
+            $query->whereBetween('stock', [1, 5]);
+        } elseif (($validated['stock_state'] ?? null) === 'out') {
+            $query->where('stock', '<=', 0);
+        }
+
         return response()->json(
-            Product::with('brand:id,name', 'category:id,name,slug', 'subcategory:id,name', 'sizes', 'colors', 'variantStocks')
-                ->paginate(20)
+            $query->orderByDesc('updated_at')->paginate((int) ($validated['per_page'] ?? 20))
         );
     }
 
