@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\PersonalAccessToken;
 
@@ -108,7 +109,7 @@ class CheckoutController extends Controller
                             abort(422, "Stock insuficiente para '{$product->name}' talla {$item['size']}. Disponible: {$sizeRow->stock}.");
                         }
 
-                        if (!empty($item['color'])) {
+                        if (!empty($item['color']) && Schema::hasTable('product_variant_stocks')) {
                             $variantRow = ProductVariantStock::where('product_id', $product->id)
                                 ->where('color', $item['color'])
                                 ->where('size', $item['size'])
@@ -678,7 +679,7 @@ class CheckoutController extends Controller
                         return "Stock insuficiente para '{$product->name}' talla {$item->size}. Disponible: {$available}.";
                     }
 
-                    if (!empty($item->color)) {
+                    if (!empty($item->color) && Schema::hasTable('product_variant_stocks')) {
                         $variantRow = ProductVariantStock::where('product_id', $product->id)
                             ->where('color', $item->color)
                             ->where('size', $item->size)
