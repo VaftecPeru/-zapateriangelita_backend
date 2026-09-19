@@ -1,0 +1,29 @@
+name: Build final backend production
+on:
+  push:
+    branches:
+      - build/final-production-20260919
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, intl, pdo_mysql, bcmath, curl, openssl, fileinfo, gd
+          tools: composer:v2
+      - run: composer validate --strict --no-check-publish
+      - run: composer audit --locked
+      - run: composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-progress
+      - run: find app routes config database -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Package cPanel backend
+        run: |
+          zip -r backend-zapateria-angelita-production-20260919.zip             app bootstrap config database public resources routes vendor artisan composer.json composer.lock             -x "public/uploads/*" "storage/*" ".env" "tests/*" ".github/*"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backend-zapateria-angelita-production-20260919
+          path: backend-zapateria-angelita-production-20260919.zip
+          retention-days: 7
