@@ -216,7 +216,7 @@ foreach ($validated['items'] as $item) {
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Order::with('user:id,name,email', 'items', 'items.product');
+        $query = Order::with('user:id,name,email,phone', 'items', 'items.product');
 
         if ($request->has('status')) {
             $query->where('status', $request->input('status'));
@@ -242,7 +242,7 @@ foreach ($validated['items'] as $item) {
     public function updateStatus(Request $request, Order $order): JsonResponse
     {
         $validated = $request->validate([
-            'status' => 'required|in:sin_preparar,preparado,enviado,entregado,cancelado',
+            'status' => 'required|in:sin_preparar,preparado,enviado,entregado,finalizado,cancelado',
         ]);
 
         $order->update(['status' => $validated['status']]);
