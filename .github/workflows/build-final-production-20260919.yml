@@ -3,6 +3,9 @@ on:
   push:
     branches:
       - build/final-production-20260919
+  pull_request:
+    branches:
+      - main
 jobs:
   build:
     runs-on: ubuntu-latest
