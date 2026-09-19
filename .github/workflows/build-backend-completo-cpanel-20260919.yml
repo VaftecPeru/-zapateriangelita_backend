@@ -1,0 +1,44 @@
+name: Build backend completo cPanel
+on:
+  pull_request:
+    branches:
+      - main
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, intl, pdo_mysql, bcmath, curl, openssl, fileinfo, gd
+          tools: composer:v2
+      - name: Validate composer
+        run: composer validate --strict --no-check-publish
+      - name: Security audit
+        run: composer audit --locked
+      - name: Install production dependencies
+        run: composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-progress
+      - name: Validate PHP syntax
+        run: find app routes config database -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Prepare Laravel runtime directories
+        run: |
+          mkdir -p storage/app/public/uploads
+          mkdir -p storage/framework/cache/data
+          mkdir -p storage/framework/sessions
+          mkdir -p storage/framework/testing
+          mkdir -p storage/framework/views
+          mkdir -p storage/logs
+          mkdir -p bootstrap/cache
+          touch storage/app/public/uploads/.gitkeep
+      - name: Package complete backend
+        run: |
+          zip -r backend-zapateria-angelita-COMPLETO-cpanel-20260919.zip .             -x ".git/*"                "backend-zapateria-angelita-COMPLETO-cpanel-20260919.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backend-zapateria-angelita-COMPLETO-cpanel-20260919
+          path: backend-zapateria-angelita-COMPLETO-cpanel-20260919.zip
+          if-no-files-found: error
+          retention-days: 7
