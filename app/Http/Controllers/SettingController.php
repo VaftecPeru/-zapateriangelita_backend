@@ -60,9 +60,15 @@ class SettingController extends Controller
             ], 422);
         }
 
-        $validated = $request->validate([
-            'value' => ['required'],
-        ]);
+        $rules = ['value' => ['required']];
+
+        if ($key === 'whatsapp_number') {
+            $rules['value'] = ['required', 'string', 'regex:/^\\+?[0-9]{8,20}$/'];
+        } elseif ($key === 'contact_email') {
+            $rules['value'] = ['required', 'email:rfc', 'max:255'];
+        }
+
+        $validated = $request->validate($rules);
 
         if ($key === 'homepage_banners') {
             $this->validateHomepageBanners((string) $validated['value']);
