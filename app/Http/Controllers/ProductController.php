@@ -140,16 +140,21 @@ class ProductController extends Controller
             ->filter(fn ($size) => $size !== '' && strlen($size) <= 10)
             ->unique();
 
-        foreach ($sizes as $size) {
+        $sizeCount = max(1, $sizes->count());
+        $masterStock = max(0, (int) $product->stock);
+        $baseStock = intdiv($masterStock, $sizeCount);
+        $remainder = $masterStock % $sizeCount;
+
+        foreach ($sizes->values() as $index => $size) {
             ProductSize::create([
                 'product_id' => $product->id,
                 'size' => $size,
-                // Al editar un producto no se debe reponer inventario vendido.
-                // Conservamos el stock real de las tallas existentes. Solo una
-                // talla realmente nueva parte del stock maestro configurado.
+                // Si ya existe inventario por talla, se conserva. Para productos
+                // nuevos/importados sin desglose distribuimos el stock maestro
+                // sin duplicar unidades entre todas las tallas.
                 'stock' => array_key_exists($size, $existingSizeStock)
                     ? max(0, (int) $existingSizeStock[$size])
-                    : max(0, (int) $product->stock),
+                    : $baseStock + ($index < $remainder ? 1 : 0),
             ]);
         }
 
