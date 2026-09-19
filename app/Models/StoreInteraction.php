@@ -12,4 +12,14 @@ class StoreInteraction extends Model
     protected $fillable = ['user_id', 'product_id', 'type', 'metadata'];
 
     protected $casts = ['metadata' => 'array'];
+
+    public function product()
+    {
+        return $this->belongsTo(Product::class);
+    }
+
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
 }
