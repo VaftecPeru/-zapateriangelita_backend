@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Product;
 use App\Models\ProductColor;
 use App\Models\ProductSize;
+use App\Models\ProductVariantStock;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -173,6 +174,84 @@ class ProductController extends Controller
         }
     }
 
+    private function normalizeVariantStocks(?string $value): array
+    {
+        if (!$value) {
+            return [];
+        }
+
+        $decoded = json_decode($value, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        $result = [];
+        $seen = [];
+
+        foreach ($decoded as $variant) {
+            if (!is_array($variant)) {
+                continue;
+            }
+
+            $color = trim((string) ($variant['color'] ?? ''));
+            $size = trim((string) ($variant['size'] ?? ''));
+            $stock = max(0, (int) ($variant['stock'] ?? 0));
+
+            if ($color === '' || $size === '' || mb_strlen($color) > 50 || mb_strlen($size) > 10) {
+                continue;
+            }
+
+            $key = mb_strtolower($color) . '|' . mb_strtolower($size);
+            if (isset($seen[$key])) {
+                continue;
+            }
+
+            $seen[$key] = true;
+            $result[] = [
+                'color' => $color,
+                'size' => $size,
+                'stock' => $stock,
+            ];
+        }
+
+        return $result;
+    }
+
+    private function syncVariantStocks(Product $product, array $variants): void
+    {
+        $product->variantStocks()->delete();
+
+        if (!$variants) {
+            return;
+        }
+
+        $sizeTotals = [];
+        $totalStock = 0;
+
+        foreach ($variants as $variant) {
+            ProductVariantStock::create([
+                'product_id' => $product->id,
+                'color' => $variant['color'],
+                'size' => $variant['size'],
+                'stock' => $variant['stock'],
+            ]);
+
+            $sizeTotals[$variant['size']] = ($sizeTotals[$variant['size']] ?? 0) + $variant['stock'];
+            $totalStock += $variant['stock'];
+        }
+
+        $product->sizes()->whereNotIn('size', array_keys($sizeTotals))->delete();
+
+        foreach ($sizeTotals as $size => $stock) {
+            ProductSize::updateOrCreate(
+                ['product_id' => $product->id, 'size' => $size],
+                ['stock' => $stock],
+            );
+        }
+
+        $product->forceFill(['stock' => $totalStock])->saveQuietly();
+    }
+
     private function processColorImages(Request $request, array $colors, ?array $existing = null): ?array
     {
         $uploaded = $request->file('color_images', []);
@@ -231,7 +310,7 @@ class ProductController extends Controller
     public function index(): JsonResponse
     {
         return response()->json(
-            Product::with('brand:id,name', 'category:id,name,slug', 'subcategory:id,name', 'sizes', 'colors')
+            Product::with('brand:id,name', 'category:id,name,slug', 'subcategory:id,name', 'sizes', 'colors', 'variantStocks')
                 ->paginate(20)
         );
     }
@@ -241,6 +320,7 @@ class ProductController extends Controller
         $validated = $request->validate([
             'product_code' => 'nullable|string|max:100',
             'name' => 'required|string|max:255',
+            'model' => 'nullable|string|max:120',
             'brand_id' => 'nullable|integer|exists:brands,id',
             'category_id' => 'required|integer|exists:categories,id',
             'subcategory_id' => 'nullable|integer|exists:subcategories,id',
@@ -259,7 +339,13 @@ class ProductController extends Controller
             'discount' => 'nullable|numeric|min:0|max:100',
             'status' => 'required|in:normal,oferta,nuevo',
             'color_sizes' => 'nullable|json',
+            'variant_stocks' => 'nullable|json',
         ]);
+
+        $variantStocks = $this->normalizeVariantStocks($request->input('variant_stocks'));
+        if ($variantStocks) {
+            $validated['stock'] = array_sum(array_column($variantStocks, 'stock'));
+        }
 
         $discount = (float) ($validated['discount'] ?? 0);
         $validated['discounted_price'] = $discount > 0
@@ -292,18 +378,19 @@ class ProductController extends Controller
         }
 
         try {
-            $fields = ['name', 'size', 'color', 'material', 'description', 'discount'];
+            $fields = ['name', 'model', 'size', 'color', 'material', 'description', 'discount'];
             foreach ($fields as $field) {
                 if (isset($validated[$field])) {
                     $validated[$field] = htmlspecialchars($validated[$field], ENT_QUOTES, 'UTF-8');
                 }
             }
 
-            DB::transaction(function () use (&$product, $validated) {
+            DB::transaction(function () use (&$product, $validated, $variantStocks) {
                 $product = Product::create($validated);
                 $this->syncVariants($product);
+                $this->syncVariantStocks($product, $variantStocks);
             });
-            $product->load('sizes', 'colors');
+            $product->load('sizes', 'colors', 'variantStocks');
             return response()->json($product, 201);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Error al crear el producto: ' . $e->getMessage()], 500);
@@ -313,7 +400,7 @@ class ProductController extends Controller
 
     public function show(Product $product): JsonResponse
     {
-        $product->load('brand:id,name', 'category:id,name,slug', 'subcategory:id,name', 'sizes', 'colors');
+        $product->load('brand:id,name', 'category:id,name,slug', 'subcategory:id,name', 'sizes', 'colors', 'variantStocks');
         return response()->json($product);
     }
 
@@ -323,6 +410,7 @@ class ProductController extends Controller
         $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
             'product_code' => 'nullable|string|max:100',
             'name' => 'nullable|string|max:255',
+            'model' => 'nullable|string|max:120',
             'brand_id' => 'nullable|integer|exists:brands,id',
             'category_id' => 'nullable|integer|exists:categories,id',
             'subcategory_id' => 'nullable|integer|exists:subcategories,id',
@@ -342,6 +430,7 @@ class ProductController extends Controller
             'status' => 'sometimes|in:normal,oferta,nuevo',
             'color_images' => 'sometimes|array',
             'color_sizes' => 'sometimes|json',
+            'variant_stocks' => 'sometimes|json',
         ]);
 
         if ($validator->fails()) {
@@ -349,6 +438,12 @@ class ProductController extends Controller
         }
 
         $validated = $validator->validated();
+        $variantStocks = $request->has('variant_stocks')
+            ? $this->normalizeVariantStocks($request->input('variant_stocks'))
+            : null;
+        if (is_array($variantStocks) && $request->has('variant_stocks')) {
+            $validated['stock'] = array_sum(array_column($variantStocks, 'stock'));
+        }
 
         $price = array_key_exists('price', $validated) ? (float) $validated['price'] : (float) $product->price;
         $discount = array_key_exists('discount', $validated) ? (float) $validated['discount'] : (float) $product->discount;
@@ -441,7 +536,7 @@ class ProductController extends Controller
                 ->values()
                 ->all();
 
-            DB::transaction(function () use ($product, $validated, $existingSizeStock, $originalSizes, $originalColors) {
+            DB::transaction(function () use ($product, $validated, $existingSizeStock, $originalSizes, $originalColors, $variantStocks) {
                 $product->update($validated);
                 $freshProduct = $product->fresh();
 
@@ -467,10 +562,14 @@ class ProductController extends Controller
                 if ($originalSizes !== $updatedSizes || $originalColors !== $updatedColors) {
                     $this->syncVariants($freshProduct, $existingSizeStock);
                 }
+
+                if (is_array($variantStocks)) {
+                    $this->syncVariantStocks($freshProduct, $variantStocks);
+                }
             });
             $this->deleteUploadImages(array_merge($previousImages, $previousColorImages), $keptImages);
             $product->refresh();
-            $product->load('sizes', 'colors');
+            $product->load('sizes', 'colors', 'variantStocks');
             return response()->json($product);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Error al actualizar el producto: ' . $e->getMessage()], 500);
