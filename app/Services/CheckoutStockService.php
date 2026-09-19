@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\ProductSize;
+use App\Models\ProductVariantStock;
 use Illuminate\Support\Facades\DB;
 
 class CheckoutStockService
@@ -46,6 +47,17 @@ class CheckoutStockService
 
                     if ($sizeRow) {
                         $sizeRow->increment('stock', $quantity);
+                    }
+
+                    if (!empty($item->color)) {
+                        $variantRow = ProductVariantStock::where('product_id', $item->product_id)
+                            ->where('color', $item->color)
+                            ->where('size', $item->size)
+                            ->first();
+
+                        if ($variantRow) {
+                            $variantRow->increment('stock', $quantity);
+                        }
                     }
                 }
             }
