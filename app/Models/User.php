@@ -15,6 +15,8 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'must_change_password',
+        'temporary_password_set_at',
         'gender',
         'birthdate',
         'role',
@@ -33,6 +35,8 @@ class User extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
+        'must_change_password' => 'boolean',
+        'temporary_password_set_at' => 'datetime',
         'birthdate' => 'date',
         'google_linked_at' => 'datetime',
     ];
