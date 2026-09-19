@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\ProductSize;
+use App\Models\ProductVariantStock;
 use App\Services\CheckoutStockService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Http;
@@ -47,6 +48,15 @@ class OpenpayWebhookReconciliationTest extends TestCase
             $table->unsignedBigInteger('product_id');
             $table->string('size', 10);
             $table->integer('stock')->default(0);
+            $table->timestamps();
+        });
+
+        Schema::create('product_variant_stocks', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('product_id');
+            $table->string('color', 50);
+            $table->string('size', 10);
+            $table->unsignedInteger('stock')->default(0);
             $table->timestamps();
         });
 
@@ -92,6 +102,13 @@ class OpenpayWebhookReconciliationTest extends TestCase
             'stock' => 3,
         ]);
 
+        $variant = ProductVariantStock::create([
+            'product_id' => $product->id,
+            'color' => 'Negro',
+            'size' => '40',
+            'stock' => 3,
+        ]);
+
         $order = new Order();
         $order->code = 'ZG-TEST-0001';
         $order->status = 'sin_preparar';
@@ -116,7 +133,7 @@ class OpenpayWebhookReconciliationTest extends TestCase
             'unit_price' => 108,
         ]);
 
-        return [$order, $product, $size];
+        return [$order, $product, $size, $variant];
     }
 
     private function fakeOpenpayCharge(string $status, float $amount = 216.0): void
@@ -136,7 +153,7 @@ class OpenpayWebhookReconciliationTest extends TestCase
 
     public function test_failed_webhook_releases_reserved_stock_only_once(): void
     {
-        [$order, $product, $size] = $this->makeReservedOrder();
+        [$order, $product, $size, $variant] = $this->makeReservedOrder();
 
         $this->fakeOpenpayCharge('failed');
 
@@ -157,6 +174,7 @@ class OpenpayWebhookReconciliationTest extends TestCase
 
         $this->assertSame(5, (int) $product->fresh()->stock);
         $this->assertSame(5, (int) $size->fresh()->stock);
+        $this->assertSame(5, (int) $variant->fresh()->stock);
         $this->assertSame('failed', $order->fresh()->payment_status);
         $this->assertNotNull($order->fresh()->stock_released_at);
 
@@ -164,6 +182,7 @@ class OpenpayWebhookReconciliationTest extends TestCase
 
         $this->assertSame(5, (int) $product->fresh()->stock);
         $this->assertSame(5, (int) $size->fresh()->stock);
+        $this->assertSame(5, (int) $variant->fresh()->stock);
     }
 
     public function test_succeeded_webhook_marks_order_paid_without_releasing_stock(): void
