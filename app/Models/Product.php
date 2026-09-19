@@ -14,6 +14,7 @@ class Product extends Model
     protected $fillable = [
         'product_code',
         'name',
+        'model',
         'brand_id',
         'price',
         'discounted_price',
@@ -73,6 +74,11 @@ class Product extends Model
     public function colors()
     {
         return $this->hasMany(ProductColor::class);
+    }
+
+    public function variantStocks()
+    {
+        return $this->hasMany(ProductVariantStock::class);
     }
 
     
