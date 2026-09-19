@@ -8,6 +8,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\ProductSize;
+use App\Models\ProductVariantStock;
 use App\Models\User;
 use App\Services\CheckoutStockService;
 use Illuminate\Http\JsonResponse;
@@ -46,7 +47,7 @@ class CheckoutController extends Controller
             'shipping_state' => 'required|string|max:100',
             'shipping_municipality' => 'required|string|max:100',
             'shipping_postal_code' => 'required|string|max:20',
-            'shipping_phone' => 'required|string|max:20',
+            'shipping_phone' => ['required', 'regex:/^\\+?[0-9]{7,20}$/'],
             'payment_method' => 'nullable|string|max:50',
             'notes' => 'nullable|string|max:2000',
         ]);
@@ -105,6 +106,17 @@ class CheckoutController extends Controller
 
                         if ($quantity > (int) $sizeRow->stock) {
                             abort(422, "Stock insuficiente para '{$product->name}' talla {$item['size']}. Disponible: {$sizeRow->stock}.");
+                        }
+
+                        if (!empty($item['color'])) {
+                            $variantRow = ProductVariantStock::where('product_id', $product->id)
+                                ->where('color', $item['color'])
+                                ->where('size', $item['size'])
+                                ->first();
+
+                            if ($variantRow && $quantity > (int) $variantRow->stock) {
+                                abort(422, "Stock insuficiente para '{$product->name}', color {$item['color']}, talla {$item['size']}. Disponible: {$variantRow->stock}.");
+                            }
                         }
                     }
 
@@ -655,6 +667,7 @@ class CheckoutController extends Controller
                 }
 
                 $sizeRow = null;
+                $variantRow = null;
                 if (!empty($item->size)) {
                     $sizeRow = ProductSize::where('product_id', $product->id)
                         ->where('size', $item->size)
@@ -664,15 +677,30 @@ class CheckoutController extends Controller
                         $available = $sizeRow ? (int) $sizeRow->stock : 0;
                         return "Stock insuficiente para '{$product->name}' talla {$item->size}. Disponible: {$available}.";
                     }
+
+                    if (!empty($item->color)) {
+                        $variantRow = ProductVariantStock::where('product_id', $product->id)
+                            ->where('color', $item->color)
+                            ->where('size', $item->size)
+                            ->lockForUpdate()
+                            ->first();
+
+                        if ($variantRow && (int) $variantRow->stock < $quantity) {
+                            return "Stock insuficiente para '{$product->name}', color {$item->color}, talla {$item->size}. Disponible: {$variantRow->stock}.";
+                        }
+                    }
                 }
 
-                $reservations[] = [$product, $sizeRow, $quantity];
+                $reservations[] = [$product, $sizeRow, $variantRow, $quantity];
             }
 
-            foreach ($reservations as [$product, $sizeRow, $quantity]) {
+            foreach ($reservations as [$product, $sizeRow, $variantRow, $quantity]) {
                 $product->decrement('stock', $quantity);
                 if ($sizeRow) {
                     $sizeRow->decrement('stock', $quantity);
+                }
+                if ($variantRow) {
+                    $variantRow->decrement('stock', $quantity);
                 }
             }
 
