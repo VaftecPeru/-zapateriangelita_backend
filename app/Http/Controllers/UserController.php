@@ -27,7 +27,7 @@ class UserController extends Controller
 
     public function resetPassword(Request $request, User $user): JsonResponse
     {
-        if ($user->role === 'admin' && auth()->id() !== $user->id) {
+        if ($user->role === 'admin' && $request->user()?->id !== $user->id) {
             return response()->json([
                 'message' => 'No se permite restablecer la contraseña de otro administrador desde esta acción.',
             ], 403);
@@ -49,7 +49,7 @@ class UserController extends Controller
 
         PasswordResetAudit::create([
             'user_id' => $user->id,
-            'admin_id' => auth()->id(),
+            'admin_id' => $request->user()?->id,
             'action' => 'admin_temporary_password',
             'ip_address' => $request->ip(),
         ]);
