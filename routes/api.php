@@ -116,7 +116,7 @@ Route::middleware('auth:sanctum')->group(function () {
             'state' => 'nullable|string|max:100',
             'municipality' => 'nullable|string|max:100',
             'city' => 'nullable|string|max:100',
-            'phone' => 'nullable|string|max:50',
+            'phone' => ['nullable', 'regex:/^\\+?[0-9]{7,20}$/'],
         ]);
 
         $user->update($validated);
