@@ -41,7 +41,7 @@ class AuthController extends Controller
         ]);
 
         try {
-            Mail::to($user->email)->send(new WelcomeUserMail($user, $request->password));
+            Mail::to($user->email)->send(new WelcomeUserMail($user));
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Error sending welcome email to ' . $user->email . ': ' . $e->getMessage());
         }
@@ -119,20 +119,21 @@ class AuthController extends Controller
     public function forgotPassword(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'email' => 'required|email|exists:users,email'
+            'email' => 'required|email|max:255'
         ]);
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $status = \Illuminate\Support\Facades\Password::broker()->sendResetLink(
+        // Respuesta uniforme para no revelar si un correo está registrado.
+        \Illuminate\Support\Facades\Password::broker()->sendResetLink(
             $request->only('email')
         );
 
-        return $status === \Illuminate\Support\Facades\Password::RESET_LINK_SENT
-            ? response()->json(['message' => __($status)])
-            : response()->json(['message' => __($status)], 400);
+        return response()->json([
+            'message' => 'Si el correo está registrado, recibirás instrucciones para restablecer tu contraseña.'
+        ]);
     }
 
     public function resetPassword(Request $request): JsonResponse
