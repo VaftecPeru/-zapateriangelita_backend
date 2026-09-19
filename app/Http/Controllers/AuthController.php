@@ -20,7 +20,7 @@ class AuthController extends Controller
             'password' => 'required|string|min:6|regex:/[A-Z]/|regex:/[0-9]/|confirmed',
             'gender' => 'required|string',
             'birthdate' => 'required|date|before_or_equal:' . now()->subYears(18)->format('Y-m-d'),
-            'phone' => ['required', 'digits_between:7,20'],
+            'phone' => ['required', 'regex:/^\\+?[0-9]{7,20}$/'],
         ], [
             'birthdate.before_or_equal' => 'Debes ser mayor de edad para registrarte.',
             'password.regex' => 'La contraseña debe tener mayúsculas y números.',
@@ -37,6 +37,8 @@ class AuthController extends Controller
             'gender' => $request->gender,
             'birthdate' => $request->birthdate,
             'phone' => $request->phone,
+            'must_change_password' => false,
+            'temporary_password_set_at' => null,
             'role' => 'user',
         ]);
 
@@ -152,7 +154,9 @@ class AuthController extends Controller
             $request->only('email', 'password', 'password_confirmation', 'token'),
             function ($user, $password) {
                 $user->forceFill([
-                    'password' => Hash::make($password)
+                    'password' => Hash::make($password),
+                    'must_change_password' => false,
+                    'temporary_password_set_at' => null,
                 ])->setRememberToken(\Illuminate\Support\Str::random(60));
                 $user->save();
             }
