@@ -6,6 +6,7 @@ use App\Models\NewsletterSubscriber;
 use App\Models\StoreInteraction;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class NewsletterController extends Controller
 {
@@ -24,11 +25,18 @@ class NewsletterController extends Controller
         $subscriber->unsubscribed_at = null;
         $subscriber->save();
 
-        StoreInteraction::create([
-            'user_id' => $request->user()?->id,
-            'type' => 'newsletter_subscribe',
-            'metadata' => ['email_domain' => substr(strrchr($email, '@') ?: '', 1)],
-        ]);
+        try {
+            StoreInteraction::create([
+                'user_id' => $request->user()?->id,
+                'type' => 'newsletter_subscribe',
+                'metadata' => ['email_domain' => substr(strrchr($email, '@') ?: '', 1)],
+            ]);
+        } catch (\Throwable $e) {
+            // La analítica nunca debe impedir que una suscripción válida se guarde.
+            Log::warning('NEWSLETTER_ANALYTICS_FAILED', [
+                'message' => $e->getMessage(),
+            ]);
+        }
 
         return response()->json([
             'success' => true,
