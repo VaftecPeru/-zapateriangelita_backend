@@ -5,11 +5,14 @@ namespace App\Http\Controllers;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
+use App\Models\ProductSize;
+use App\Models\ProductVariantStock;
 use App\Models\Coupon;
 use App\Models\ShippingMethod;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class OrderController extends Controller
 {
@@ -43,7 +46,7 @@ class OrderController extends Controller
             'shipping_state' => 'nullable|string|max:100',
             'shipping_municipality' => 'nullable|string|max:100',
             'shipping_postal_code' => 'nullable|string|max:20',
-            'shipping_phone' => 'nullable|string|max:20',
+            'shipping_phone' => ['nullable', 'regex:/^\\+?[0-9]{7,20}$/'],
             'payment_method' => 'nullable|string|max:50',
             'customer_email' => 'nullable|email|max:255',
             'notes' => 'nullable|string|max:2000',
@@ -57,19 +60,26 @@ class OrderController extends Controller
             $subtotal = 0;
             $orderItems = [];
             $coupon = null;
-foreach ($validated['items'] as $item) {
-                $product = Product::with('sizes')->find($item['product_id']);
+            foreach ($validated['items'] as $item) {
+                $product = Product::whereKey($item['product_id'])->lockForUpdate()->first();
 
                 if (!$product) {
                     DB::rollBack();
                     return response()->json(['error' => 'Producto no encontrado.'], 404);
                 }
 
-                $quantity = $item['quantity'];
-                $stock = $product->stock ?? 0;
+                $quantity = (int) $item['quantity'];
+                $stock = (int) ($product->stock ?? 0);
                 $price = $product->discounted_price ?? $product->price ?? 0;
 
-                // Validar stock por talla si se especificó
+                if ($quantity > $stock) {
+                    DB::rollBack();
+                    return response()->json([
+                        'error' => "Stock total insuficiente para '{$product->name}'. Disponible: {$stock}."
+                    ], 422);
+                }
+
+                // Validar stock por talla/color si se especificó
                 if (!empty($item['size'])) {
                     $colorSizes = $product->color_sizes ?? [];
                     if (!empty($item['color']) && !empty($colorSizes[$item['color']]) && !in_array($item['size'], $colorSizes[$item['color']], true)) {
@@ -79,21 +89,38 @@ foreach ($validated['items'] as $item) {
                         ], 422);
                     }
 
-                    $productSize = $product->sizes->firstWhere('size', $item['size']);
+                    $productSize = ProductSize::where('product_id', $product->id)
+                        ->where('size', $item['size'])
+                        ->lockForUpdate()
+                        ->first();
                     if (!$productSize) {
                         DB::rollBack();
                         return response()->json([
                             'error' => "El producto '{$product->name}' no tiene la talla '{$item['size']}'."
                         ], 422);
                     }
-                    $stock = $productSize->stock;
-                }
+                    $sizeStock = (int) $productSize->stock;
+                    if ($quantity > $sizeStock) {
+                        DB::rollBack();
+                        return response()->json([
+                            'error' => "Stock insuficiente para '{$product->name}' (talla {$item['size']}). Disponible: {$sizeStock}."
+                        ], 422);
+                    }
 
-                if ($quantity > $stock) {
-                    DB::rollBack();
-                    return response()->json([
-                        'error' => "Stock insuficiente para '{$product->name}'" . (!empty($item['size']) ? " (talla {$item['size']})" : '') . ". Disponible: {$stock}."
-                    ], 422);
+                    if (!empty($item['color']) && Schema::hasTable('product_variant_stocks')) {
+                        $variantStock = ProductVariantStock::where('product_id', $product->id)
+                            ->where('color', $item['color'])
+                            ->where('size', $item['size'])
+                            ->lockForUpdate()
+                            ->first();
+
+                        if ($variantStock && $quantity > (int) $variantStock->stock) {
+                            DB::rollBack();
+                            return response()->json([
+                                'error' => "Stock insuficiente para '{$product->name}', color {$item['color']}, talla {$item['size']}. Disponible: {$variantStock->stock}."
+                            ], 422);
+                        }
+                    }
                 }
 
                 $orderItems[] = [
@@ -155,15 +182,33 @@ foreach ($validated['items'] as $item) {
             foreach ($orderItems as $item) {
                 OrderItem::create(array_merge($item, ['order_id' => $order->id]));
 
-                // Descontar stock
-                $product = Product::find($item['product_id']);
+                // Descontar siempre del stock total y de la variante correspondiente.
+                $product = Product::whereKey($item['product_id'])->lockForUpdate()->first();
+                if ($product) {
+                    $product->decrement('stock', $item['quantity']);
+                }
+
                 if (!empty($item['size'])) {
-                    $productSize = $product->sizes()->where('size', $item['size'])->first();
+                    $productSize = ProductSize::where('product_id', $item['product_id'])
+                        ->where('size', $item['size'])
+                        ->lockForUpdate()
+                        ->first();
+
                     if ($productSize) {
                         $productSize->decrement('stock', $item['quantity']);
                     }
-                } elseif ($product) {
-                    $product->decrement('stock', $item['quantity']);
+
+                    if (!empty($item['color']) && Schema::hasTable('product_variant_stocks')) {
+                        $variantStock = ProductVariantStock::where('product_id', $item['product_id'])
+                            ->where('color', $item['color'])
+                            ->where('size', $item['size'])
+                            ->lockForUpdate()
+                            ->first();
+
+                        if ($variantStock) {
+                            $variantStock->decrement('stock', $item['quantity']);
+                        }
+                    }
                 }
             }
 
