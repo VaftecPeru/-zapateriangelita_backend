@@ -22,6 +22,8 @@ use App\Http\Controllers\CheckoutController;
 use App\Http\Controllers\ProductSizeController;
 use App\Http\Controllers\ProductColorController;
 use App\Http\Controllers\Api\OpenpayController;
+use App\Http\Controllers\NewsletterController;
+use App\Http\Controllers\InteractionController;
 
 // Autenticación
 Route::middleware('throttle:60,1')
@@ -64,6 +66,8 @@ Route::middleware('throttle:100,1')->group(function () {
     Route::post('/leads', [LeadController::class, 'store']);
 
     Route::get('/settings', [SettingController::class, 'index']);
+    Route::post('/newsletter/subscribe', [NewsletterController::class, 'subscribe']);
+    Route::post('/interactions', [InteractionController::class, 'store']);
 
     Route::get('/public/categories', [
         CategoryController::class,
@@ -121,6 +125,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::post('/logout', [AuthController::class, 'logout']);
+    Route::post('/user/change-temporary-password', [UserController::class, 'changeTemporaryPassword']);
 
     // Vinculación explícita de Google desde una sesión ya autenticada.
     Route::middleware('throttle:20,1')
@@ -220,6 +225,7 @@ Route::middleware('auth:sanctum')->group(function () {
         // Usuarios
         Route::get('/users', [UserController::class, 'index']);
         Route::get('/users/{id}', [UserController::class, 'show']);
+        Route::post('/users/{user}/reset-password', [UserController::class, 'resetPassword']);
         Route::delete('/users/{user}', [UserController::class, 'destroy']);
 
         // Tallas
