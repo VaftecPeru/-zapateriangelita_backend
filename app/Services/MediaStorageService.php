@@ -3,7 +3,9 @@
 namespace App\Services;
 
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use RuntimeException;
 
 class MediaStorageService
@@ -30,6 +32,7 @@ class MediaStorageService
             return null;
         }
 
+        $isAbsoluteUrl = preg_match('#^https?://#i', $reference) === 1;
         $path = parse_url($reference, PHP_URL_PATH) ?: $reference;
         $path = '/' . ltrim($path, '/');
 
@@ -41,6 +44,8 @@ class MediaStorageService
             $path = substr($path, strlen('/storage/'));
         } elseif (str_starts_with($path, '/uploads/')) {
             $path = ltrim($path, '/');
+        } elseif ($isAbsoluteUrl) {
+            return null;
         } else {
             $path = ltrim($path, '/');
         }
@@ -205,6 +210,110 @@ class MediaStorageService
         }
 
         return null;
+    }
+
+    public function migrateReferencedMedia(): array
+    {
+        $references = [];
+
+        if (Schema::hasTable('products')) {
+            DB::table('products')
+                ->orderBy('id')
+                ->get(['img', 'images', 'color_images'])
+                ->each(function ($product) use (&$references) {
+                    $this->appendReference($references, $product->img ?? null);
+                    $this->appendJsonReferences($references, $product->images ?? null);
+                    $this->appendJsonReferences($references, $product->color_images ?? null);
+                });
+        }
+
+        if (Schema::hasTable('settings')) {
+            DB::table('settings')
+                ->whereIn('key', ['logo_url', 'homepage_banners'])
+                ->get(['key', 'value'])
+                ->each(function ($setting) use (&$references) {
+                    if ($setting->key === 'logo_url') {
+                        $this->appendReference($references, $setting->value);
+                        return;
+                    }
+
+                    $this->appendJsonReferences($references, $setting->value);
+                });
+        }
+
+        $references = array_values(array_unique(array_filter($references)));
+        $stats = [
+            'total_references' => count($references),
+            'already_persistent' => 0,
+            'migrated' => 0,
+            'legacy_only' => 0,
+            'missing' => 0,
+            'missing_paths' => [],
+        ];
+
+        foreach ($references as $reference) {
+            $relative = $this->normalizeRelativePath($reference);
+            if (!$relative) {
+                continue;
+            }
+
+            $persistent = $this->absolutePath($relative);
+            if (is_file($persistent)) {
+                $stats['already_persistent']++;
+                continue;
+            }
+
+            $resolved = $this->resolveForRead($reference);
+            if (!$resolved) {
+                $stats['missing']++;
+                if (count($stats['missing_paths']) < 100) {
+                    $stats['missing_paths'][] = $reference;
+                }
+                continue;
+            }
+
+            if (is_file($persistent)) {
+                $stats['migrated']++;
+            } else {
+                $stats['legacy_only']++;
+            }
+        }
+
+        return $stats;
+    }
+
+    private function appendJsonReferences(array &$references, mixed $value): void
+    {
+        if ($value === null || $value === '') {
+            return;
+        }
+
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                $value = $decoded;
+            } else {
+                $this->appendReference($references, $value);
+                return;
+            }
+        }
+
+        if (is_array($value)) {
+            array_walk_recursive($value, function ($reference) use (&$references) {
+                $this->appendReference($references, $reference);
+            });
+        }
+    }
+
+    private function appendReference(array &$references, mixed $reference): void
+    {
+        if (!is_string($reference) || trim($reference) === '') {
+            return;
+        }
+
+        if ($this->normalizeRelativePath($reference)) {
+            $references[] = $reference;
+        }
     }
 
     public function deleteReference(?string $reference): bool
