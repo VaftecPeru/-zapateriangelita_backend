@@ -14,13 +14,15 @@ class WelcomeUserMail extends Mailable
     use Queueable, SerializesModels;
 
     public $user;
+    public $registrationMethod;
 
     /**
      * Create a new message instance.
      */
-    public function __construct($user)
+    public function __construct($user, string $registrationMethod = 'password')
     {
         $this->user = $user;
+        $this->registrationMethod = $registrationMethod;
     }
 
     /**
@@ -29,7 +31,7 @@ class WelcomeUserMail extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: '¡Bienvenido a Zapateriangelita!',
+            subject: '¡Bienvenido a Zapatería Angelita!',
         );
     }
 

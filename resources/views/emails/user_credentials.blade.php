@@ -5,11 +5,14 @@
     <title>Compra confirmada - Zapatería Angelita</title>
 </head>
 <body style="margin:0;padding:0;background:#f2ede5;font-family:Arial,Helvetica,sans-serif;color:#222;">
+    @php
+        $frontend = rtrim(env('FRONTEND_URL', 'https://zapateriangelita.com'), '/');
+        $logo = app(\App\Services\BrandingService::class)->logoUrl();
+    @endphp
     <div style="max-width:620px;margin:0 auto;padding:32px 18px;">
         <div style="background:#fff;border:1px solid #e8e3dc;border-radius:14px;overflow:hidden;box-shadow:0 8px 28px rgba(0,0,0,.06);">
             <div style="background:#111;color:#fff;text-align:center;padding:26px 20px;">
-                <div style="font-size:12px;letter-spacing:3px;text-transform:uppercase;opacity:.75;">Zapatería</div>
-                <div style="font-size:27px;font-weight:900;letter-spacing:2px;">ANGELITA</div>
+                <img src="{{ $logo }}" alt="Zapatería Angelita" style="max-width:220px;width:72%;height:auto;background:#fff;border-radius:8px;padding:7px 10px;">
             </div>
 
             <div style="padding:34px 30px;">

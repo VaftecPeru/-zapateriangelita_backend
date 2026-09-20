@@ -6,6 +6,7 @@ use App\Models\AdditionalService;
 use App\Services\DeliveryCostService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 class AdditionalServiceController extends Controller
@@ -23,9 +24,78 @@ class AdditionalServiceController extends Controller
 
     public function delivery(DeliveryCostService $deliveryCost): JsonResponse
     {
+        $service = Schema::hasColumn('additional_services', 'code')
+            ? AdditionalService::query()->where('code', 'delivery')->first()
+            : null;
+
         return response()->json([
             'code' => 'delivery',
+            'name' => $service?->name ?? 'Costo de delivery',
             'price' => $deliveryCost->current(),
+            'is_active' => $service ? $service->is_active !== false : false,
+            'description' => $service?->description,
+            'updated_at' => $service?->updated_at,
+        ]);
+    }
+
+    public function updateDelivery(Request $request): JsonResponse
+    {
+        if (
+            !Schema::hasColumn('additional_services', 'code') ||
+            !Schema::hasColumn('additional_services', 'is_active')
+        ) {
+            return response()->json([
+                'message' => 'La base de datos todavía no tiene aplicada la migración del costo de delivery.',
+            ], 409);
+        }
+
+        $validated = $request->validate([
+            'price' => ['required', 'numeric', 'min:0', 'max:999999.99'],
+            'is_active' => ['required', 'boolean'],
+            'description' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $service = DB::transaction(function () use ($validated) {
+            $service = AdditionalService::query()
+                ->where('code', 'delivery')
+                ->lockForUpdate()
+                ->first();
+
+            if (!$service) {
+                $service = AdditionalService::query()
+                    ->where(function ($query) {
+                        $query
+                            ->whereRaw('LOWER(name) LIKE ?', ['%delivery%'])
+                            ->orWhereRaw('LOWER(name) LIKE ?', ['%envio%']);
+                    })
+                    ->lockForUpdate()
+                    ->first();
+            }
+
+            if (!$service) {
+                $service = new AdditionalService();
+            }
+
+            $service->fill([
+                'name' => 'Costo de delivery',
+                'code' => 'delivery',
+                'description' => $validated['description']
+                    ?? 'Costo de entrega aplicado automáticamente al total de la compra.',
+                'price' => round((float) $validated['price'], 2),
+                'tag' => 'Delivery',
+                'is_active' => (bool) $validated['is_active'],
+            ]);
+            $service->save();
+
+            return $service->fresh();
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => $service->is_active
+                ? 'Costo de delivery actualizado correctamente.'
+                : 'Costo de delivery desactivado. El checkout cobrará MXN 0.00.',
+            'service' => $service,
         ]);
     }
 

@@ -109,19 +109,27 @@
 </head>
 
 <body>
+    @php
+        $frontend = rtrim(env('FRONTEND_URL', 'https://zapateriangelita.com'), '/');
+        $logo = app(\App\Services\BrandingService::class)->logoUrl();
+    @endphp
     <div class="container">
         <div class="header">
-            <h1>Zapateriangelita</h1>
+            <img src="{{ $logo }}" alt="Zapatería Angelita" style="max-width:220px;width:72%;height:auto;background:#fff;border-radius:8px;padding:7px 10px;">
         </div>
         <div class="content">
             <h2>¡Hola, {{ $user->name }}!</h2>
             <p>Queríamos darte una cálida bienvenida a Zapateriangelita. Tu cuenta ha sido creada exitosamente y ahora
                 eres parte de nuestra exclusiva comunidad.</p>
-            <p>Tu cuenta fue creada correctamente. Por seguridad, nunca enviamos ni mostramos tu contraseña por correo.</p>
+            <p>Tu cuenta fue creada correctamente. Por seguridad, nunca enviamos ni mostramos tu contraseña personal por correo.</p>
 
             <div class="credentials-box">
                 <p><strong>Email:</strong> {{ $user->email }}</p>
-                <p><strong>Seguridad:</strong> Usa la contraseña que registraste o restablécela desde la pantalla de acceso si la olvidaste.</p>
+                @if($registrationMethod === 'google')
+                    <p><strong>Acceso:</strong> Tu cuenta fue creada con Google. Usa el botón “Continuar con Google” para iniciar sesión.</p>
+                @else
+                    <p><strong>Seguridad:</strong> Usa la contraseña que registraste o restablécela desde la pantalla de acceso si la olvidaste.</p>
+                @endif
             </div>
 
             <div class="button-container">

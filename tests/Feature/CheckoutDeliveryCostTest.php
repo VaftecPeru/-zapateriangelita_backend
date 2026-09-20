@@ -4,9 +4,12 @@ namespace Tests\Feature;
 
 use App\Models\AdditionalService;
 use App\Models\Product;
+use App\Models\User;
 use App\Services\DeliveryCostService;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
+use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class CheckoutDeliveryCostTest extends TestCase
@@ -96,6 +99,16 @@ class CheckoutDeliveryCostTest extends TestCase
         });
     }
 
+    private function user(string $email, string $role): User
+    {
+        return User::create([
+            'name' => ucfirst($role),
+            'email' => $email,
+            'password' => Hash::make('Secret123!'),
+            'role' => $role,
+        ]);
+    }
+
     public function test_delivery_service_cost_is_exposed_and_added_to_checkout_total(): void
     {
         AdditionalService::create([
@@ -160,6 +173,66 @@ class CheckoutDeliveryCostTest extends TestCase
 
         $this->getJson('/api/checkout/delivery-cost')
             ->assertOk()
-            ->assertJsonPath('price', 0);
+            ->assertJsonPath('price', 0)
+            ->assertJsonPath('is_active', false);
+    }
+
+    public function test_admin_can_manage_delivery_cost(): void
+    {
+        $admin = $this->user('admin-delivery@example.com', 'admin');
+        Sanctum::actingAs($admin);
+
+        $this->putJson('/api/services/delivery', [
+            'price' => 125.75,
+            'is_active' => true,
+            'description' => 'Tarifa de entrega configurada por administración.',
+        ])->assertOk()
+          ->assertJsonPath('service.code', 'delivery')
+          ->assertJsonPath('service.name', 'Costo de delivery')
+          ->assertJsonPath('service.price', '125.75')
+          ->assertJsonPath('service.is_active', true);
+
+        $this->getJson('/api/checkout/delivery-cost')
+            ->assertOk()
+            ->assertJsonPath('price', 125.75)
+            ->assertJsonPath('is_active', true);
+    }
+
+    public function test_superadmin_can_deactivate_delivery_cost(): void
+    {
+        AdditionalService::create([
+            'name' => 'Delivery antiguo',
+            'code' => 'delivery',
+            'price' => 99,
+            'tag' => 'Delivery',
+            'is_active' => true,
+        ]);
+
+        $superadmin = $this->user('soporte@vaftec.com.pe', 'superadmin');
+        Sanctum::actingAs($superadmin);
+
+        $this->putJson('/api/services/delivery', [
+            'price' => 99,
+            'is_active' => false,
+            'description' => 'Delivery temporalmente desactivado.',
+        ])->assertOk()
+          ->assertJsonPath('service.name', 'Costo de delivery')
+          ->assertJsonPath('service.is_active', false);
+
+        $this->getJson('/api/checkout/delivery-cost')
+            ->assertOk()
+            ->assertJsonPath('price', 0)
+            ->assertJsonPath('is_active', false);
+    }
+
+    public function test_final_user_cannot_manage_delivery_cost(): void
+    {
+        $customer = $this->user('cliente-delivery@example.com', 'user');
+        Sanctum::actingAs($customer);
+
+        $this->putJson('/api/services/delivery', [
+            'price' => 10,
+            'is_active' => true,
+        ])->assertForbidden();
     }
 }

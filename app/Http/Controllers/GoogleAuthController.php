@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\WelcomeUserMail;
 use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
@@ -9,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 
 class GoogleAuthController extends Controller
@@ -126,6 +128,18 @@ class GoogleAuthController extends Controller
             $user->google_linked_at = $user->google_linked_at ?: now();
             $user->email_verified_at = $user->email_verified_at ?: now();
             $user->save();
+        }
+
+        if ($accountCreated) {
+            try {
+                Mail::to($user->email)->send(new WelcomeUserMail($user, 'google'));
+            } catch (\Throwable $e) {
+                Log::error('GOOGLE_WELCOME_EMAIL_FAILED', [
+                    'user_id' => $user->id,
+                    'exception' => get_class($e),
+                    'message' => $e->getMessage(),
+                ]);
+            }
         }
 
         return $this->issueSession($user, $accountCreated);

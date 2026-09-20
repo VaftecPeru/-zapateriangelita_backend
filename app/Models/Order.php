@@ -26,6 +26,7 @@ class Order extends Model
         'payment_transaction_id',
         'payment_error',
         'paid_at',
+        'purchase_email_sent_at',
         'stock_reserved_at',
         'stock_released_at',
         'shipping_address',
@@ -46,6 +47,7 @@ class Order extends Model
         'shipping_cost' => 'decimal:2',
         'total' => 'decimal:2',
         'paid_at' => 'datetime',
+        'purchase_email_sent_at' => 'datetime',
         'stock_reserved_at' => 'datetime',
         'stock_released_at' => 'datetime',
     ];
