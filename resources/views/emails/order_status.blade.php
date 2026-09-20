@@ -3,7 +3,7 @@
 <body style="margin:0;background:#f4f4f4;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;">
 @php
 $frontend=rtrim(env('FRONTEND_URL','https://zapateriangelita.com'),'/');
-$logo=$frontend.'/logo-angelita-horizontal.png';
+$logo = app(\\App\\Services\\BrandingService::class)->logoUrl();
 $labels=['sin_preparar'=>'Sin preparar','preparado'=>'Preparado','enviado'=>'Enviado','entregado'=>'Entregado','finalizado'=>'Finalizado','cancelado'=>'Cancelado'];
 $label=$labels[$order->status] ?? ucfirst((string)$order->status);
 @endphp
