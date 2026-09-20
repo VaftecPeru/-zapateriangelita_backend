@@ -11,8 +11,15 @@ class AdditionalService extends Model
 
     protected $fillable = [
         'name',
+        'code',
         'description',
         'price',
         'tag',
+        'is_active',
+    ];
+
+    protected $casts = [
+        'price' => 'decimal:2',
+        'is_active' => 'boolean',
     ];
 }
