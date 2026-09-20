@@ -11,6 +11,7 @@ use App\Models\ProductSize;
 use App\Models\ProductVariantStock;
 use App\Models\User;
 use App\Services\CheckoutStockService;
+use App\Services\DeliveryCostService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -73,7 +74,9 @@ class CheckoutController extends Controller
         }
 
         try {
-            $order = DB::transaction(function () use ($validated, $authUser, $email) {
+            $shippingCost = app(DeliveryCostService::class)->current();
+
+            $order = DB::transaction(function () use ($validated, $authUser, $email, $shippingCost) {
                 $subtotal = 0.0;
                 $orderItems = [];
 
@@ -139,8 +142,8 @@ class CheckoutController extends Controller
                     'status' => 'sin_preparar',
                     'subtotal' => round($subtotal, 2),
                     'discount' => 0,
-                    'shipping_cost' => 0,
-                    'total' => round($subtotal, 2),
+                    'shipping_cost' => round($shippingCost, 2),
+                    'total' => round($subtotal + $shippingCost, 2),
                     'payment_method' => $validated['payment_method'] ?? 'openpay',
                     'shipping_address' => trim($validated['shipping_address']),
                     'shipping_city' => trim($validated['shipping_city']),
@@ -168,6 +171,8 @@ class CheckoutController extends Controller
                 'id' => $order->id,
                 'order_id' => $order->id,
                 'order_code' => $order->code,
+                'subtotal' => (float) $order->subtotal,
+                'shipping_cost' => (float) $order->shipping_cost,
                 'total' => (float) $order->total,
                 'checkout_token' => $checkoutToken,
                 'guest_checkout' => $guestCheckout,
