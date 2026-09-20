@@ -21,7 +21,7 @@ class IsAdmin
 
         $user = auth('sanctum')->user();
         
-        if (!$user || $user->role !== 'admin') {
+        if (!$user || !in_array($user->role, ['admin', 'superadmin'], true)) {
             return response()->json(['message' => 'No tienes permisos para acceder a este recurso'], 403);
         }
 
