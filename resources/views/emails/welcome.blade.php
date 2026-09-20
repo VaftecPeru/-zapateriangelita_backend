@@ -109,9 +109,13 @@
 </head>
 
 <body>
+    @php
+        $frontend = rtrim(env('FRONTEND_URL', 'https://zapateriangelita.com'), '/');
+        $logo = $frontend . '/logo-angelita-horizontal.png';
+    @endphp
     <div class="container">
         <div class="header">
-            <h1>Zapateriangelita</h1>
+            <img src="{{ $logo }}" alt="Zapatería Angelita" style="max-width:220px;width:72%;height:auto;background:#fff;border-radius:8px;padding:7px 10px;">
         </div>
         <div class="content">
             <h2>¡Hola, {{ $user->name }}!</h2>
