@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Mail\PasswordChangedMail;
 use App\Mail\WelcomeUserMail;
 use App\Models\User;
+use App\Services\AccessTokenService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
@@ -85,7 +86,7 @@ class AuthController extends Controller
             ]);
         }
 
-        $token = $user->createToken('auth_token')->plainTextToken;
+        $token = app(AccessTokenService::class)->issue($user, 'auth_token');
 
         return response()
             ->json([
@@ -126,7 +127,7 @@ class AuthController extends Controller
             ], 401);
         }
 
-        $token = $user->createToken('auth_token')->plainTextToken;
+        $token = app(AccessTokenService::class)->issue($user, 'auth_token');
 
         return response()
             ->json([
