@@ -186,6 +186,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Servicios
         Route::post('/services', [AdditionalServiceController::class, 'store']);
+        Route::put('/services/delivery', [AdditionalServiceController::class, 'updateDelivery']);
         Route::put('/services/{service}', [
             AdditionalServiceController::class,
             'update',
