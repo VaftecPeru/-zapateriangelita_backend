@@ -804,7 +804,7 @@ class CheckoutController extends Controller
 
         if ($createdUser && $user && $temporaryPassword) {
             $response['account_created'] = true;
-            $response['auth_token'] = $user->createToken('checkout_auto_login')->plainTextToken;
+            $response['auth_token'] = app(AccessTokenService::class)->issue($user, 'checkout_auto_login');
             $response['user'] = $user;
             $response['credentials_email_scheduled'] = true;
             return $response;
@@ -815,7 +815,7 @@ class CheckoutController extends Controller
             // pertenece a este usuario. Reemitimos el token para que un retorno o
             // reintento de verificación 3D Secure siga terminando en Mis Compras
             // con el cliente autenticado, sin generar otra cuenta ni otra compra.
-            $response['auth_token'] = $user->createToken('checkout_auto_login')->plainTextToken;
+            $response['auth_token'] = app(AccessTokenService::class)->issue($user, 'checkout_auto_login');
             $response['user'] = $user;
             $response['auto_login_reissued'] = true;
             return $response;
