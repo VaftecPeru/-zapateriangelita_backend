@@ -7,8 +7,10 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\StoreInteraction;
 use App\Models\User;
+use App\Services\UserVisibilityService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -20,9 +22,11 @@ class StatsController extends Controller
         $this->middleware('admin');
     }
 
-    public function index(): JsonResponse
+    public function index(Request $request, UserVisibilityService $visibility): JsonResponse
     {
         try {
+            $actor = $request->user();
+            $visibleUsers = $visibility->listFor($actor);
             $now = Carbon::now();
             $weekStart = $now->copy()->subDays(7);
             $previousWeekStart = $now->copy()->subDays(14);
@@ -125,7 +129,7 @@ class StatsController extends Controller
                 ]);
 
             return response()->json([
-                'all_users' => User::latest()->get(),
+                'all_users' => $visibleUsers,
                 'all_leads' => Lead::latest()->get(),
                 'metrics' => [
                     'interactions' => $totalInteractions,
