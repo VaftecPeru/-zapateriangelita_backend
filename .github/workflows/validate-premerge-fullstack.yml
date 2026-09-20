@@ -2,7 +2,7 @@ name: Validate corrective backend
 on:
   push:
     branches:
-      - fix/premerge-fullstack-20260918
+      - feature/superadmin-role-management-20260919
   pull_request:
     branches:
       - main
@@ -11,8 +11,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: fix/premerge-fullstack-20260918
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
