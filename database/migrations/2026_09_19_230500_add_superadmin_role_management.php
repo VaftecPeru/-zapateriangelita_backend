@@ -24,12 +24,41 @@ return new class extends Migration
         }
 
         if (Schema::hasTable('users')) {
-            DB::table('users')
-                ->whereRaw('LOWER(email) = ?', ['baftec@gmail.com'])
-                ->update([
-                    'role' => 'superadmin',
-                    'updated_at' => now(),
-                ]);
+            $supportEmail = 'soporte@vaftec.com.pe';
+            $legacyEmail = 'vaftec@gmail.com';
+
+            $supportUser = DB::table('users')
+                ->whereRaw('LOWER(email) = ?', [$supportEmail])
+                ->first();
+
+            if ($supportUser) {
+                DB::table('users')
+                    ->where('id', $supportUser->id)
+                    ->update([
+                        'role' => 'superadmin',
+                        'updated_at' => now(),
+                    ]);
+
+                // Si aún existe la cuenta antigua, conserva acceso administrativo
+                // pero el privilegio máximo queda centralizado en soporte@vaftec.com.pe.
+                DB::table('users')
+                    ->whereRaw('LOWER(email) = ?', [$legacyEmail])
+                    ->where('id', '<>', $supportUser->id)
+                    ->update([
+                        'role' => 'admin',
+                        'updated_at' => now(),
+                    ]);
+            } else {
+                // Compatibilidad con instalaciones donde la cuenta todavía usa
+                // vaftec@gmail.com: se migra el mismo usuario al correo corporativo.
+                DB::table('users')
+                    ->whereRaw('LOWER(email) = ?', [$legacyEmail])
+                    ->update([
+                        'email' => $supportEmail,
+                        'role' => 'superadmin',
+                        'updated_at' => now(),
+                    ]);
+            }
         }
     }
 
@@ -37,7 +66,7 @@ return new class extends Migration
     {
         if (Schema::hasTable('users')) {
             DB::table('users')
-                ->whereRaw('LOWER(email) = ?', ['baftec@gmail.com'])
+                ->whereRaw('LOWER(email) = ?', ['soporte@vaftec.com.pe'])
                 ->where('role', 'superadmin')
                 ->update([
                     'role' => 'admin',
