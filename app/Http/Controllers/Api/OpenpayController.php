@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Services\CheckoutStockService;
+use App\Services\PurchaseNotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\DB;
@@ -45,6 +46,8 @@ class OpenpayController extends Controller
             ->firstOrFail();
 
         if ($order->payment_status === 'paid') {
+            app(PurchaseNotificationService::class)->send($order, $user);
+
             return response()->json([
                 'ok' => false,
                 'message' => 'Este pedido ya fue pagado.',
@@ -228,6 +231,8 @@ class OpenpayController extends Controller
                 $order->status = 'confirmed';
                 $order->save();
 
+                app(PurchaseNotificationService::class)->send($order, $user);
+
                 return response()->json([
                     'ok' => true,
                     'message' => 'Pago aprobado correctamente.',
@@ -318,6 +323,8 @@ class OpenpayController extends Controller
         }
 
         if ($order->payment_status === 'paid') {
+            app(PurchaseNotificationService::class)->send($order, $user);
+
             return response()->json([
                 'ok' => true,
                 'payment_status' => 'paid',
@@ -406,6 +413,8 @@ class OpenpayController extends Controller
                     $order->paid_at = $order->paid_at ?: now();
                     $order->status = 'confirmed';
                     $order->save();
+
+                    app(PurchaseNotificationService::class)->send($order, $user);
 
                     return response()->json([
                         'ok' => true,
@@ -642,6 +651,11 @@ class OpenpayController extends Controller
                     $lockedOrder->status = 'sin_preparar';
                     $lockedOrder->save();
                 });
+
+                $paidOrder = Order::with('items', 'user')->find($order->id);
+                if ($paidOrder) {
+                    app(PurchaseNotificationService::class)->send($paidOrder, $paidOrder->user);
+                }
 
                 return response()->json(['received' => true, 'type' => $type, 'reconciled' => true], 200);
             }
