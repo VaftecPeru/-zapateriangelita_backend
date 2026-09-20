@@ -15,6 +15,7 @@ use App\Services\PurchaseNotificationService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Schema;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -59,6 +60,12 @@ class TransactionalEmailNotificationTest extends TestCase
             $table->timestamp('last_used_at')->nullable();
             $table->timestamp('expires_at')->nullable();
             $table->timestamps();
+        });
+
+        Schema::create('password_reset_tokens', function (Blueprint $table) {
+            $table->string('email')->primary();
+            $table->string('token');
+            $table->timestamp('created_at')->nullable();
         });
 
         Schema::create('password_reset_audits', function (Blueprint $table) {
@@ -194,6 +201,36 @@ class TransactionalEmailNotificationTest extends TestCase
             $mail->hasTo('reset@example.com') &&
             $mail->token === 'token-angelita-123'
         );
+    }
+
+    public function test_password_reset_flow_sends_changed_confirmation(): void
+    {
+        Mail::fake();
+        $user = $this->user('reset-completo@example.com');
+        $token = Password::broker()->createToken($user);
+
+        $this->postJson('/api/reset-password', [
+            'email' => $user->email,
+            'token' => $token,
+            'password' => 'ClaveNueva123',
+            'password_confirmation' => 'ClaveNueva123',
+        ])->assertOk();
+
+        $this->assertTrue(Hash::check('ClaveNueva123', $user->fresh()->password));
+
+        Mail::assertSent(PasswordChangedMail::class, fn ($mail) =>
+            $mail->hasTo('reset-completo@example.com') &&
+            $mail->context === 'password_reset'
+        );
+    }
+
+    public function test_google_welcome_template_uses_google_access_copy(): void
+    {
+        $user = $this->user('google@example.com');
+        $html = (new WelcomeUserMail($user, 'google'))->render();
+
+        $this->assertStringContainsString('Continuar con Google', $html);
+        $this->assertStringContainsString('logo-angelita-horizontal.png', $html);
     }
 
     public function test_purchase_voucher_email_is_idempotent(): void
