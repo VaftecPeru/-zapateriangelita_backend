@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\WelcomeUserMail;
@@ -14,9 +15,22 @@ class AuthController extends Controller
 {
     public function register(Request $request): JsonResponse
     {
+        $normalizedEmail = strtolower(trim((string) $request->input('email', '')));
+        $request->merge(['email' => $normalizedEmail]);
+
+        if ($normalizedEmail !== '' && User::whereRaw('LOWER(TRIM(email)) = ?', [$normalizedEmail])->exists()) {
+            return response()->json([
+                'message' => 'Este correo electrónico ya está registrado. Inicia sesión o recupera tu contraseña.',
+                'error_code' => 'EMAIL_ALREADY_REGISTERED',
+                'errors' => [
+                    'email' => ['Este correo electrónico ya está registrado.'],
+                ],
+            ], 409);
+        }
+
         $validator = Validator::make($request->all(), [
             'name' => ['required', 'string', 'max:255', 'regex:/^[\pL]+(?:[\s\'-][\pL]+)*$/u'],
-            'email' => 'required|string|email:rfc,dns|max:255|unique:users|regex:/^[^@]+@[^@]+\.[^@]{2,}$/',
+            'email' => 'required|string|email:rfc|max:255|unique:users,email|regex:/^[^@]+@[^@]+\.[^@]{2,}$/',
             'password' => 'required|string|min:6|regex:/[A-Z]/|regex:/[0-9]/|confirmed',
             'gender' => 'required|string',
             'birthdate' => 'required|date|before_or_equal:' . now()->subYears(18)->format('Y-m-d'),
@@ -30,17 +44,34 @@ class AuthController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-            'gender' => $request->gender,
-            'birthdate' => $request->birthdate,
-            'phone' => $request->phone,
-            'must_change_password' => false,
-            'temporary_password_set_at' => null,
-            'role' => 'user',
-        ]);
+        try {
+            $user = User::create([
+                'name' => $request->name,
+                'email' => $normalizedEmail,
+                'password' => Hash::make($request->password),
+                'gender' => $request->gender,
+                'birthdate' => $request->birthdate,
+                'phone' => $request->phone,
+                'must_change_password' => false,
+                'temporary_password_set_at' => null,
+                'role' => 'user',
+            ]);
+        } catch (QueryException $e) {
+            $sqlState = (string) ($e->errorInfo[0] ?? '');
+            $driverCode = (int) ($e->errorInfo[1] ?? 0);
+
+            if ($sqlState === '23000' || $driverCode === 1062) {
+                return response()->json([
+                    'message' => 'Este correo electrónico ya está registrado. Inicia sesión o recupera tu contraseña.',
+                    'error_code' => 'EMAIL_ALREADY_REGISTERED',
+                    'errors' => [
+                        'email' => ['Este correo electrónico ya está registrado.'],
+                    ],
+                ], 409);
+            }
+
+            throw $e;
+        }
 
         try {
             Mail::to($user->email)->send(new WelcomeUserMail($user));
@@ -80,7 +111,8 @@ class AuthController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $user = User::where('email', $request->email)->first();
+        $normalizedEmail = strtolower(trim((string) $request->email));
+        $user = User::whereRaw('LOWER(TRIM(email)) = ?', [$normalizedEmail])->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
             return response()->json([
@@ -120,6 +152,10 @@ class AuthController extends Controller
 
     public function forgotPassword(Request $request): JsonResponse
     {
+        $request->merge([
+            'email' => strtolower(trim((string) $request->input('email', ''))),
+        ]);
+
         $validator = Validator::make($request->all(), [
             'email' => 'required|email|max:255'
         ]);
@@ -140,6 +176,10 @@ class AuthController extends Controller
 
     public function resetPassword(Request $request): JsonResponse
     {
+        $request->merge([
+            'email' => strtolower(trim((string) $request->input('email', ''))),
+        ]);
+
         $validator = Validator::make($request->all(), [
             'email' => 'required|email',
             'password' => 'required|string|min:6|confirmed',
