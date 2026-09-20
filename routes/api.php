@@ -220,9 +220,10 @@ Route::middleware('auth:sanctum')->group(function () {
             'destroy',
         ]);
 
-        // Estadísticas y configuración
+        // Estadísticas, configuración y mantenimiento de media
         Route::get('/stats', [StatsController::class, 'index']);
         Route::put('/settings/{key}', [SettingController::class, 'update']);
+        Route::post('/maintenance/media/migrate', [MediaController::class, 'migrateReferencedMedia']);
 
         // Leads
         Route::get('/leads', [LeadController::class, 'index']);
