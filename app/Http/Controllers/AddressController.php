@@ -43,6 +43,20 @@ class AddressController extends Controller
         $user = $request->user();
 
         try {
+            $duplicate = Address::where('user_id', $user->id)
+                ->get()
+                ->first(fn (Address $candidate) => $this->sameAddress($candidate, $validated));
+
+            if ($duplicate) {
+                $duplicate->update($validated);
+
+                if (!empty($validated['is_default'])) {
+                    $this->setDefault($duplicate);
+                }
+
+                return response()->json($duplicate->fresh());
+            }
+
             $address = Address::create(array_merge($validated, ['user_id' => $user->id]));
 
             // Si es la primera dirección, hacerla default
@@ -108,6 +122,32 @@ class AddressController extends Controller
 
         $address->delete();
         return response()->json(null, 204);
+    }
+
+    private function sameAddress(Address $address, array $data): bool
+    {
+        $fields = [
+            'full_name',
+            'phone',
+            'country',
+            'state',
+            'municipality',
+            'address',
+            'city',
+            'postal_code',
+            'reference',
+        ];
+
+        foreach ($fields as $field) {
+            $left = mb_strtolower(trim((string) ($address->{$field} ?? '')));
+            $right = mb_strtolower(trim((string) ($data[$field] ?? '')));
+
+            if ($left !== $right) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
