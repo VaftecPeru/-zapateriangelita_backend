@@ -174,9 +174,16 @@ class AuthController extends Controller
         $existingUser = User::whereRaw('LOWER(TRIM(email)) = ?', [$request->email])->first();
         $emailForBroker = $existingUser?->email ?? $request->email;
 
-        \Illuminate\Support\Facades\Password::broker()->sendResetLink([
-            'email' => $emailForBroker,
-        ]);
+        try {
+            \Illuminate\Support\Facades\Password::broker()->sendResetLink([
+                'email' => $emailForBroker,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('PASSWORD_RESET_LINK_DELIVERY_FAILED', [
+                'exception' => get_class($e),
+                'message' => $e->getMessage(),
+            ]);
+        }
 
         return response()->json([
             'message' => 'Si el correo está registrado, recibirás instrucciones para restablecer tu contraseña.'
