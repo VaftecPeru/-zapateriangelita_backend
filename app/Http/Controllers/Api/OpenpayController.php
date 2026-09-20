@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Services\CheckoutStockService;
-use App\Services\PurchaseNotificationService;
+use App\Services\DeferredOrderNotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\DB;
@@ -46,7 +46,7 @@ class OpenpayController extends Controller
             ->firstOrFail();
 
         if ($order->payment_status === 'paid') {
-            app(PurchaseNotificationService::class)->send($order, $user);
+            app(DeferredOrderNotificationService::class)->schedule($order, $user);
 
             return response()->json([
                 'ok' => false,
@@ -154,7 +154,7 @@ class OpenpayController extends Controller
             }
             $order->refresh();
 
-            $response = Http::connectTimeout(10)->timeout(30)->withoutRedirecting()
+            $response = Http::connectTimeout(5)->timeout(15)->withoutRedirecting()
                 ->withBasicAuth($privateKey, '')
                 ->withHeaders([
                     'X-Forwarded-For' => $clientIp,
@@ -231,7 +231,7 @@ class OpenpayController extends Controller
                 $order->status = 'confirmed';
                 $order->save();
 
-                app(PurchaseNotificationService::class)->send($order, $user);
+                app(DeferredOrderNotificationService::class)->schedule($order, $user);
 
                 return response()->json([
                     'ok' => true,
@@ -323,7 +323,7 @@ class OpenpayController extends Controller
         }
 
         if ($order->payment_status === 'paid') {
-            app(PurchaseNotificationService::class)->send($order, $user);
+            app(DeferredOrderNotificationService::class)->schedule($order, $user);
 
             return response()->json([
                 'ok' => true,
@@ -363,7 +363,7 @@ class OpenpayController extends Controller
                     (string) $order->payment_transaction_id
                 );
 
-                $response = Http::connectTimeout(10)->timeout(30)->withoutRedirecting()
+                $response = Http::connectTimeout(5)->timeout(15)->withoutRedirecting()
                     ->withBasicAuth($privateKey, '')
                     ->acceptJson()
                     ->get("{$baseUrl}/v1/{$merchantId}/charges/{$transactionId}");
@@ -414,7 +414,7 @@ class OpenpayController extends Controller
                     $order->status = 'confirmed';
                     $order->save();
 
-                    app(PurchaseNotificationService::class)->send($order, $user);
+                    app(DeferredOrderNotificationService::class)->schedule($order, $user);
 
                     return response()->json([
                         'ok' => true,
@@ -581,7 +581,7 @@ class OpenpayController extends Controller
             $baseUrl = rtrim((string) config('openpay.base_url'), '/');
             $encodedTransactionId = rawurlencode($transactionId);
 
-            $providerResponse = Http::connectTimeout(10)->timeout(30)->withoutRedirecting()
+            $providerResponse = Http::connectTimeout(5)->timeout(15)->withoutRedirecting()
                 ->withBasicAuth($privateKey, '')
                 ->acceptJson()
                 ->get("{$baseUrl}/v1/{$merchantId}/charges/{$encodedTransactionId}");
@@ -654,7 +654,7 @@ class OpenpayController extends Controller
 
                 $paidOrder = Order::with('items', 'user')->find($order->id);
                 if ($paidOrder) {
-                    app(PurchaseNotificationService::class)->send($paidOrder, $paidOrder->user);
+                    app(DeferredOrderNotificationService::class)->schedule($paidOrder, $paidOrder->user);
                 }
 
                 return response()->json(['received' => true, 'type' => $type, 'reconciled' => true], 200);
