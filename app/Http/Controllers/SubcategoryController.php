@@ -107,6 +107,12 @@ class SubcategoryController extends Controller
      */
     public function destroy(Subcategory $subcategory): JsonResponse
     {
+        if ($subcategory->products()->exists()) {
+            return response()->json([
+                'error' => 'No se puede eliminar la subcategoría porque tiene productos asociados.',
+            ], 409);
+        }
+
         $subcategory->delete();
         return response()->json(null, 204);
     }
