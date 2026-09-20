@@ -165,9 +165,12 @@ class AuthController extends Controller
         }
 
         // Respuesta uniforme para no revelar si un correo está registrado.
-        \Illuminate\Support\Facades\Password::broker()->sendResetLink(
-            $request->only('email')
-        );
+        $existingUser = User::whereRaw('LOWER(TRIM(email)) = ?', [$request->email])->first();
+        $emailForBroker = $existingUser?->email ?? $request->email;
+
+        \Illuminate\Support\Facades\Password::broker()->sendResetLink([
+            'email' => $emailForBroker,
+        ]);
 
         return response()->json([
             'message' => 'Si el correo está registrado, recibirás instrucciones para restablecer tu contraseña.'
@@ -190,8 +193,14 @@ class AuthController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
+        $existingUser = User::whereRaw('LOWER(TRIM(email)) = ?', [$request->email])->first();
+        $credentials = $request->only('email', 'password', 'password_confirmation', 'token');
+        if ($existingUser) {
+            $credentials['email'] = $existingUser->email;
+        }
+
         $status = \Illuminate\Support\Facades\Password::broker()->reset(
-            $request->only('email', 'password', 'password_confirmation', 'token'),
+            $credentials,
             function ($user, $password) {
                 $user->forceFill([
                     'password' => Hash::make($password),
