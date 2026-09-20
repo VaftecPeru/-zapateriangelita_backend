@@ -62,6 +62,7 @@ Route::middleware('throttle:100,1')->group(function () {
     Route::get('/products/{product}', [ProductController::class, 'show']);
 
     Route::get('/services', [AdditionalServiceController::class, 'index']);
+    Route::get('/checkout/delivery-cost', [AdditionalServiceController::class, 'delivery']);
 
     Route::post('/leads', [LeadController::class, 'store']);
 
