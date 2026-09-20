@@ -2,45 +2,39 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\MediaStorageService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Response;
-use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class MediaController extends Controller
 {
+    public function __construct(private readonly MediaStorageService $media)
+    {
+    }
+
+    public function migrateReferencedMedia(): JsonResponse
+    {
+        $stats = $this->media->migrateReferencedMedia();
+
+        return response()->json([
+            'success' => $stats['missing'] === 0,
+            'message' => $stats['missing'] === 0
+                ? 'Multimedia consolidada en almacenamiento persistente.'
+                : 'La consolidación terminó con referencias faltantes. Revisa missing_paths.',
+            'data' => $stats,
+        ], $stats['missing'] === 0 ? 200 : 207);
+    }
+
     public function show(string $path): BinaryFileResponse|Response
     {
-        $relativePath = ltrim($path, '/');
+        $resolved = $this->media->resolveForRead($path);
 
-        if (
-            $relativePath === '' ||
-            str_contains($relativePath, '..') ||
-            !preg_match('#^[A-Za-z0-9_./-]+$#', $relativePath)
-        ) {
+        if (!$resolved || !is_file($resolved)) {
             abort(404);
         }
 
-        $disk = Storage::disk('public');
-
-        if (!$disk->exists($relativePath) && str_starts_with($relativePath, 'uploads/')) {
-            $legacyRoot = realpath(public_path('uploads'));
-            $legacyFile = realpath(public_path($relativePath));
-
-            if (
-                $legacyRoot &&
-                $legacyFile &&
-                str_starts_with($legacyFile, $legacyRoot . DIRECTORY_SEPARATOR) &&
-                is_file($legacyFile)
-            ) {
-                $disk->put($relativePath, file_get_contents($legacyFile));
-            }
-        }
-
-        if (!$disk->exists($relativePath)) {
-            abort(404);
-        }
-
-        return response()->file($disk->path($relativePath), [
+        return response()->file($resolved, [
             'Cache-Control' => 'public, max-age=604800',
             'X-Content-Type-Options' => 'nosniff',
         ]);

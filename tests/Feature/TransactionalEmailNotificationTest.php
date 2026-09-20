@@ -11,6 +11,7 @@ use App\Mail\WelcomeUserMail;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\User;
+use App\Services\DeferredOrderNotificationService;
 use App\Services\PurchaseNotificationService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Hash;
@@ -231,6 +232,55 @@ class TransactionalEmailNotificationTest extends TestCase
 
         $this->assertStringContainsString('Continuar con Google', $html);
         $this->assertStringContainsString('logo-angelita-horizontal.png', $html);
+    }
+
+    public function test_google_linked_user_can_request_welcome_email_without_blocking_login_flow(): void
+    {
+        Mail::fake();
+
+        $user = $this->user('nuevo-google@example.com');
+        $user->forceFill([
+            'google_sub' => 'google-sub-123',
+            'google_email' => 'nuevo-google@example.com',
+            'google_linked_at' => now(),
+            'email_verified_at' => now(),
+        ])->save();
+
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/auth/google/welcome')
+            ->assertOk()
+            ->assertJsonPath('success', true);
+
+        Mail::assertSent(WelcomeUserMail::class, fn ($mail) =>
+            $mail->hasTo('nuevo-google@example.com') &&
+            $mail->registrationMethod === 'google'
+        );
+    }
+
+    public function test_non_google_user_cannot_request_google_welcome_email(): void
+    {
+        Mail::fake();
+
+        $user = $this->user('local@example.com');
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/auth/google/welcome')
+            ->assertStatus(422)
+            ->assertJsonPath('error_code', 'GOOGLE_ACCOUNT_NOT_LINKED');
+
+        Mail::assertNothingSent();
+    }
+
+    public function test_post_payment_email_is_scheduled_without_blocking_the_payment_response(): void
+    {
+        Mail::fake();
+        $user = $this->user('diferido@example.com');
+        $order = $this->paidOrder($user);
+
+        app(DeferredOrderNotificationService::class)->schedule($order, $user);
+
+        Mail::assertNothingSent();
     }
 
     public function test_purchase_voucher_email_is_idempotent(): void

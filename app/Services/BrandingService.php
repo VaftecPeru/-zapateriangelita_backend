@@ -26,8 +26,18 @@ class BrandingService
         }
 
         $path = '/' . ltrim($value, '/');
-        if (str_starts_with($path, '/uploads/')) {
-            return rtrim((string) config('app.url'), '/') . '/api/media' . $path;
+        $appUrl = rtrim((string) config('app.url'), '/');
+
+        if (str_starts_with($path, '/api/media/')) {
+            return $appUrl . $path;
+        }
+
+        if (str_starts_with($path, '/uploads/') || str_starts_with($path, '/storage/')) {
+            $relative = app(MediaStorageService::class)->normalizeRelativePath($path);
+
+            return $relative
+                ? $appUrl . app(MediaStorageService::class)->publicUrl($relative)
+                : $fallback;
         }
 
         return $frontend . $path;

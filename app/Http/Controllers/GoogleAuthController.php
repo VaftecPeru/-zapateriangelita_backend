@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Mail\WelcomeUserMail;
 use App\Models\User;
+use App\Services\AccessTokenService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -130,19 +131,42 @@ class GoogleAuthController extends Controller
             $user->save();
         }
 
-        if ($accountCreated) {
-            try {
-                Mail::to($user->email)->send(new WelcomeUserMail($user, 'google'));
-            } catch (\Throwable $e) {
-                Log::error('GOOGLE_WELCOME_EMAIL_FAILED', [
-                    'user_id' => $user->id,
-                    'exception' => get_class($e),
-                    'message' => $e->getMessage(),
-                ]);
-            }
+        // La sesión se devuelve inmediatamente. El frontend dispara el correo
+        // de bienvenida en una petición separada para que SMTP no bloquee el acceso.
+        return $this->issueSession($user, $accountCreated);
+    }
+
+    public function sendWelcome(Request $request): JsonResponse
+    {
+        /** @var User|null $user */
+        $user = $request->user();
+
+        if (!$user || !$user->google_sub || !$user->google_linked_at) {
+            return response()->json([
+                'message' => 'La cuenta no está vinculada con Google.',
+                'error_code' => 'GOOGLE_ACCOUNT_NOT_LINKED',
+            ], 422);
         }
 
-        return $this->issueSession($user, $accountCreated);
+        try {
+            Mail::to($user->email)->send(new WelcomeUserMail($user, 'google'));
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Correo de bienvenida enviado.',
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('GOOGLE_WELCOME_EMAIL_FAILED', [
+                'user_id' => $user->id,
+                'exception' => get_class($e),
+                'message' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'La cuenta fue creada correctamente, pero el correo de bienvenida no pudo enviarse en este momento.',
+            ], 503);
+        }
     }
 
     public function link(Request $request): JsonResponse
@@ -219,7 +243,7 @@ class GoogleAuthController extends Controller
 
     private function issueSession(User $user, bool $accountCreated = false): JsonResponse
     {
-        $token = $user->createToken('google_login')->plainTextToken;
+        $token = app(AccessTokenService::class)->issue($user, 'google_login');
 
         return response()
             ->json([
@@ -229,6 +253,7 @@ class GoogleAuthController extends Controller
                 'google_linked' => true,
                 'account_created' => $accountCreated,
                 'registration_method' => $accountCreated ? 'google' : null,
+                'welcome_email_required' => $accountCreated,
             ])
             ->cookie(
                 'sanctum_token',
@@ -362,9 +387,9 @@ class GoogleAuthController extends Controller
         }
 
         return Cache::remember($cacheKey, now()->addMinutes(50), function () {
-            $response = Http::connectTimeout(5)
-                ->timeout(8)
-                ->retry(2, 200)
+            $response = Http::connectTimeout(3)
+                ->timeout(5)
+                ->retry(1, 150)
                 ->acceptJson()
                 ->get(self::GOOGLE_CERTS_URL);
 

@@ -3,12 +3,16 @@
 namespace App\Http\Controllers;
 
 use App\Models\Setting;
+use App\Services\MediaStorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 
 class SettingController extends Controller
 {
+    public function __construct(private readonly MediaStorageService $media)
+    {
+    }
+
     private const PUBLIC_KEYS = [
         'whatsapp_number',
         'company_name',
@@ -134,67 +138,14 @@ class SettingController extends Controller
             'image' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
         ]);
 
-        $file = $validated['image'];
-        $uploadPath = public_path('uploads/settings');
+        $path = $this->media->storeOptimizedImage(
+            $validated['image'],
+            'settings',
+            'logo_',
+            900,
+            88,
+        );
 
-        if (!is_dir($uploadPath)) {
-            mkdir($uploadPath, 0755, true);
-        }
-
-        $mime = $file->getMimeType();
-        $sourcePath = $file->getPathname();
-        $filename = 'logo_' . Str::lower(Str::random(14)) . '.webp';
-        $finalPath = $uploadPath . DIRECTORY_SEPARATOR . $filename;
-        $image = null;
-
-        if ($mime === 'image/jpeg' || $mime === 'image/jpg') {
-            $image = @imagecreatefromjpeg($sourcePath);
-        } elseif ($mime === 'image/png') {
-            $image = @imagecreatefrompng($sourcePath);
-        } elseif ($mime === 'image/webp') {
-            $image = @imagecreatefromwebp($sourcePath);
-        }
-
-        if ($image && function_exists('imagewebp')) {
-            $width = imagesx($image);
-            $height = imagesy($image);
-            $maxWidth = 900;
-
-            if ($width > $maxWidth) {
-                $newWidth = $maxWidth;
-                $newHeight = (int) round(($height / $width) * $newWidth);
-                $resized = imagecreatetruecolor($newWidth, $newHeight);
-                imagealphablending($resized, false);
-                imagesavealpha($resized, true);
-                imagecopyresampled(
-                    $resized,
-                    $image,
-                    0,
-                    0,
-                    0,
-                    0,
-                    $newWidth,
-                    $newHeight,
-                    $width,
-                    $height,
-                );
-                imagedestroy($image);
-                $image = $resized;
-            }
-
-            imagewebp($image, $finalPath, 88);
-            imagedestroy($image);
-        } else {
-            if ($image) {
-                imagedestroy($image);
-            }
-
-            $extension = strtolower($file->getClientOriginalExtension() ?: 'png');
-            $filename = 'logo_' . Str::lower(Str::random(14)) . '.' . $extension;
-            $file->move($uploadPath, $filename);
-        }
-
-        $path = '/uploads/settings/' . $filename;
         Setting::updateOrCreate(['key' => 'logo_url'], ['value' => $path]);
 
         return response()->json([
@@ -212,71 +163,19 @@ class SettingController extends Controller
             'image' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:8192'],
         ]);
 
-        $file = $validated['image'];
-        $uploadPath = public_path('uploads/banners');
-
-        if (!is_dir($uploadPath)) {
-            mkdir($uploadPath, 0755, true);
-        }
-
-        $mime = $file->getMimeType();
-        $sourcePath = $file->getPathname();
-        $filename = 'banner_' . Str::lower(Str::random(14)) . '.webp';
-        $finalPath = $uploadPath . DIRECTORY_SEPARATOR . $filename;
-        $image = null;
-
-        if ($mime === 'image/jpeg' || $mime === 'image/jpg') {
-            $image = @imagecreatefromjpeg($sourcePath);
-        } elseif ($mime === 'image/png') {
-            $image = @imagecreatefrompng($sourcePath);
-        } elseif ($mime === 'image/webp') {
-            $image = @imagecreatefromwebp($sourcePath);
-        }
-
-        if ($image && function_exists('imagewebp')) {
-            $width = imagesx($image);
-            $height = imagesy($image);
-            $maxWidth = 1920;
-
-            if ($width > $maxWidth) {
-                $newWidth = $maxWidth;
-                $newHeight = (int) round(($height / $width) * $newWidth);
-                $resized = imagecreatetruecolor($newWidth, $newHeight);
-                imagealphablending($resized, false);
-                imagesavealpha($resized, true);
-                imagecopyresampled(
-                    $resized,
-                    $image,
-                    0,
-                    0,
-                    0,
-                    0,
-                    $newWidth,
-                    $newHeight,
-                    $width,
-                    $height,
-                );
-                imagedestroy($image);
-                $image = $resized;
-            }
-
-            imagewebp($image, $finalPath, 84);
-            imagedestroy($image);
-        } else {
-            if ($image) {
-                imagedestroy($image);
-            }
-
-            $extension = strtolower($file->getClientOriginalExtension() ?: 'jpg');
-            $filename = 'banner_' . Str::lower(Str::random(14)) . '.' . $extension;
-            $file->move($uploadPath, $filename);
-        }
+        $path = $this->media->storeOptimizedImage(
+            $validated['image'],
+            'banners',
+            'banner_',
+            1920,
+            84,
+        );
 
         return response()->json([
             'success' => true,
             'message' => 'Imagen del banner cargada correctamente.',
             'data' => [
-                'path' => '/uploads/banners/' . $filename,
+                'path' => $path,
             ],
         ]);
     }

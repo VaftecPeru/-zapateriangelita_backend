@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\AdditionalService;
+use App\Models\Order;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\DeliveryCostService;
@@ -127,10 +128,15 @@ class CheckoutDeliveryCostTest extends TestCase
             'stock' => 10,
         ]);
 
-        $this->getJson('/api/checkout/delivery-cost')
+        $deliveryResponse = $this->getJson('/api/checkout/delivery-cost')
             ->assertOk()
             ->assertJsonPath('code', 'delivery')
             ->assertJsonPath('price', 85.5);
+
+        $this->assertStringContainsString(
+            'no-store',
+            (string) $deliveryResponse->headers->get('Cache-Control')
+        );
 
         $response = $this->postJson('/api/checkout/orders', [
             'items' => [
@@ -234,5 +240,31 @@ class CheckoutDeliveryCostTest extends TestCase
             'price' => 10,
             'is_active' => true,
         ])->assertForbidden();
+    }
+
+    public function test_customer_purchase_history_includes_delivery_breakdown(): void
+    {
+        $customer = $this->user('historial-delivery@example.com', 'user');
+        Sanctum::actingAs($customer);
+
+        Order::create([
+            'user_id' => $customer->id,
+            'code' => 'ZA-DEL-HIST-001',
+            'status' => 'sin_preparar',
+            'subtotal' => 400,
+            'discount' => 0,
+            'shipping_cost' => 49.90,
+            'total' => 449.90,
+            'payment_method' => 'openpay',
+            'payment_status' => 'paid',
+            'customer_name' => $customer->name,
+            'customer_email' => $customer->email,
+        ]);
+
+        $this->getJson('/api/my-orders')
+            ->assertOk()
+            ->assertJsonPath('0.subtotal', '400.00')
+            ->assertJsonPath('0.shipping_cost', '49.90')
+            ->assertJsonPath('0.total', '449.90');
     }
 }

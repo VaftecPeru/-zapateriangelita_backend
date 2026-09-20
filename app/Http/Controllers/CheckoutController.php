@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Mail\TemporaryPasswordMail;
 use App\Models\Address;
 use App\Models\Order;
 use App\Models\OrderItem;
@@ -12,7 +11,7 @@ use App\Models\ProductVariantStock;
 use App\Models\User;
 use App\Services\CheckoutStockService;
 use App\Services\DeliveryCostService;
-use App\Services\PurchaseNotificationService;
+use App\Services\DeferredOrderNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -20,7 +19,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\PersonalAccessToken;
@@ -302,7 +300,7 @@ class CheckoutController extends Controller
         ];
 
         try {
-            $response = Http::connectTimeout(10)->timeout(30)->withoutRedirecting()
+            $response = Http::connectTimeout(5)->timeout(15)->withoutRedirecting()
                 ->withBasicAuth($privateKey, '')
                 ->withHeaders(['X-Forwarded-For' => $clientIp])
                 ->acceptJson()
@@ -542,7 +540,7 @@ class CheckoutController extends Controller
 
         try {
             $transactionId = rawurlencode((string) $order->payment_transaction_id);
-            $response = Http::connectTimeout(10)->timeout(30)->withoutRedirecting()
+            $response = Http::connectTimeout(4)->timeout(8)->withoutRedirecting()
                 ->withBasicAuth($privateKey, '')
                 ->acceptJson()
                 ->get("{$baseUrl}/v1/{$merchantId}/charges/{$transactionId}");
@@ -791,33 +789,24 @@ class CheckoutController extends Controller
         /** @var Order $paidOrder */
         [$paidOrder, $user, $userWasAlreadyLinked] = $result;
 
-        $purchaseEmailSent = app(PurchaseNotificationService::class)->send($paidOrder, $user);
+        app(DeferredOrderNotificationService::class)->schedule(
+            $paidOrder,
+            $user,
+            $temporaryPassword,
+            $createdUser && $user && $temporaryPassword !== null,
+        );
 
         $response = [
             'account_created' => false,
             'requires_login' => false,
-            'purchase_email_sent' => $purchaseEmailSent,
+            'purchase_email_scheduled' => true,
         ];
 
         if ($createdUser && $user && $temporaryPassword) {
-            $credentialsSent = false;
-
-            try {
-                Mail::to($user->email)->send(new TemporaryPasswordMail($user, $temporaryPassword));
-                $credentialsSent = true;
-            } catch (\Throwable $e) {
-                Log::error('CHECKOUT_CREDENTIAL_EMAIL_FAILED', [
-                    'order_id' => $paidOrder->id,
-                    'user_id' => $user->id,
-                    'exception' => get_class($e),
-                    'message' => $e->getMessage(),
-                ]);
-            }
-
             $response['account_created'] = true;
-            $response['auth_token'] = $user->createToken('checkout_auto_login')->plainTextToken;
+            $response['auth_token'] = app(AccessTokenService::class)->issue($user, 'checkout_auto_login');
             $response['user'] = $user;
-            $response['credentials_sent'] = $credentialsSent;
+            $response['credentials_email_scheduled'] = true;
             return $response;
         }
 
@@ -826,7 +815,7 @@ class CheckoutController extends Controller
             // pertenece a este usuario. Reemitimos el token para que un retorno o
             // reintento de verificación 3D Secure siga terminando en Mis Compras
             // con el cliente autenticado, sin generar otra cuenta ni otra compra.
-            $response['auth_token'] = $user->createToken('checkout_auto_login')->plainTextToken;
+            $response['auth_token'] = app(AccessTokenService::class)->issue($user, 'checkout_auto_login');
             $response['user'] = $user;
             $response['auto_login_reissued'] = true;
             return $response;
