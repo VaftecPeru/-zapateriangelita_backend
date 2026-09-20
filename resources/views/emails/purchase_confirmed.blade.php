@@ -49,13 +49,7 @@
         <div style="display:flex;justify-content:space-between;padding:11px 0 0;border-top:2px solid #111;margin-top:6px;font-size:17px;"><span><strong>Total</strong></span><strong style="color:#e30613;">MXN {{ number_format((float)$order->total, 2) }}</strong></div>
       </div>
 
-      @if($temporaryPassword && $user)
-      <div style="margin-top:24px;padding:18px;border-radius:12px;background:#f7f7f7;border:1px solid #e5e5e5;">
-        <div style="font-weight:800;margin-bottom:8px;">Tu cuenta de cliente fue creada</div>
-        <div style="font-size:13px;line-height:1.7;">Usuario: <strong>{{ $user->email }}</strong><br>Contraseña temporal: <strong style="font-family:monospace;">{{ $temporaryPassword }}</strong></div>
-        <div style="font-size:12px;color:#666;margin-top:8px;">Al iniciar sesión deberás establecer una contraseña personal.</div>
-      </div>
-      @endif
+
 
       <div style="margin-top:24px;padding:16px;border-radius:12px;background:#fafafa;">
         <strong>Entrega</strong><br>
