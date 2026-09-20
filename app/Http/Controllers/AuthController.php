@@ -76,15 +76,19 @@ class AuthController extends Controller
             throw $e;
         }
 
-        try {
-            Mail::to($user->email)->send(new WelcomeUserMail($user));
-        } catch (\Throwable $e) {
-            Log::error('WELCOME_EMAIL_FAILED', [
-                'user_id' => $user->id,
-                'exception' => get_class($e),
-                'message' => $e->getMessage(),
-            ]);
-        }
+        // En cPanel/PHP-FPM el correo se envía después de devolver la sesión.
+        // Un SMTP lento o caído no debe convertir un registro válido en un error.
+        app()->terminating(function () use ($user) {
+            try {
+                Mail::to($user->email)->send(new WelcomeUserMail($user));
+            } catch (\Throwable $e) {
+                Log::error('WELCOME_EMAIL_FAILED', [
+                    'user_id' => $user->id,
+                    'exception' => get_class($e),
+                    'message' => $e->getMessage(),
+                ]);
+            }
+        });
 
         $token = app(AccessTokenService::class)->issue($user, 'auth_token');
 
