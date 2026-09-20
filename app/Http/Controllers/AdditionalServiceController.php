@@ -35,6 +35,9 @@ class AdditionalServiceController extends Controller
             'is_active' => $service ? $service->is_active !== false : false,
             'description' => $service?->description,
             'updated_at' => $service?->updated_at,
+        ])->withHeaders([
+            'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+            'Pragma' => 'no-cache',
         ]);
     }
 
