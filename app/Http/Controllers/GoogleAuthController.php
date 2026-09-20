@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Mail\WelcomeUserMail;
 use App\Models\User;
+use App\Services\AccessTokenService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -242,7 +243,7 @@ class GoogleAuthController extends Controller
 
     private function issueSession(User $user, bool $accountCreated = false): JsonResponse
     {
-        $token = $user->createToken('google_login')->plainTextToken;
+        $token = app(AccessTokenService::class)->issue($user, 'google_login');
 
         return response()
             ->json([
