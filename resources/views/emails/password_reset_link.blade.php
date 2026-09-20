@@ -3,7 +3,7 @@
 <body style="margin:0;background:#f4f4f4;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;">
 @php
   $frontend = rtrim(env('FRONTEND_URL', 'https://zapateriangelita.com'), '/');
-  $logo = $frontend . '/logo-angelita-horizontal.png';
+  $logo = app(\\App\\Services\\BrandingService::class)->logoUrl();
   $resetUrl = $frontend . '/reset-password?token=' . rawurlencode($token) . '&email=' . rawurlencode($user->email);
 @endphp
 <div style="max-width:620px;margin:auto;padding:28px 14px;"><div style="background:#fff;border-radius:18px;overflow:hidden;border:1px solid #eee;">
