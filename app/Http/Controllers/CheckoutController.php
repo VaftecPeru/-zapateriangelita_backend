@@ -540,7 +540,7 @@ class CheckoutController extends Controller
 
         try {
             $transactionId = rawurlencode((string) $order->payment_transaction_id);
-            $response = Http::connectTimeout(10)->timeout(30)->withoutRedirecting()
+            $response = Http::connectTimeout(4)->timeout(8)->withoutRedirecting()
                 ->withBasicAuth($privateKey, '')
                 ->acceptJson()
                 ->get("{$baseUrl}/v1/{$merchantId}/charges/{$transactionId}");
