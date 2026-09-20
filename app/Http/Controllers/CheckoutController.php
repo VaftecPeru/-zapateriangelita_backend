@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Mail\UserCredentialsMail;
+use App\Mail\TemporaryPasswordMail;
 use App\Models\Address;
 use App\Models\Order;
 use App\Models\OrderItem;
@@ -12,6 +12,7 @@ use App\Models\ProductVariantStock;
 use App\Models\User;
 use App\Services\CheckoutStockService;
 use App\Services\DeliveryCostService;
+use App\Services\PurchaseNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -790,26 +791,33 @@ class CheckoutController extends Controller
         /** @var Order $paidOrder */
         [$paidOrder, $user, $userWasAlreadyLinked] = $result;
 
+        $purchaseEmailSent = app(PurchaseNotificationService::class)->send($paidOrder, $user);
+
         $response = [
             'account_created' => false,
             'requires_login' => false,
+            'purchase_email_sent' => $purchaseEmailSent,
         ];
 
         if ($createdUser && $user && $temporaryPassword) {
+            $credentialsSent = false;
+
             try {
-                Mail::to($user->email)->send(new UserCredentialsMail($user, $temporaryPassword, $paidOrder));
+                Mail::to($user->email)->send(new TemporaryPasswordMail($user, $temporaryPassword));
+                $credentialsSent = true;
             } catch (\Throwable $e) {
                 Log::error('CHECKOUT_CREDENTIAL_EMAIL_FAILED', [
                     'order_id' => $paidOrder->id,
                     'user_id' => $user->id,
                     'exception' => get_class($e),
+                    'message' => $e->getMessage(),
                 ]);
             }
 
             $response['account_created'] = true;
             $response['auth_token'] = $user->createToken('checkout_auto_login')->plainTextToken;
             $response['user'] = $user;
-            $response['credentials_sent'] = true;
+            $response['credentials_sent'] = $credentialsSent;
             return $response;
         }
 
