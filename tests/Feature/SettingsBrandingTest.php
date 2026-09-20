@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\MediaStorageService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\File;
@@ -21,6 +22,8 @@ class SettingsBrandingTest extends TestCase
         config([
             'database.default' => 'sqlite',
             'database.connections.sqlite.database' => ':memory:',
+            'media.root' => storage_path('framework/testing/angelita_media'),
+            'media.url_prefix' => '/api/media',
         ]);
 
         Schema::create('users', function (Blueprint $table) {
@@ -43,7 +46,7 @@ class SettingsBrandingTest extends TestCase
 
     protected function tearDown(): void
     {
-        File::deleteDirectory(public_path('uploads/settings'));
+        File::deleteDirectory(storage_path('framework/testing/angelita_media'));
         parent::tearDown();
     }
 
@@ -100,9 +103,12 @@ class SettingsBrandingTest extends TestCase
 
         $path = (string) $response->json('data.path');
 
-        $this->assertStringStartsWith('/uploads/settings/logo_', $path);
+        $this->assertStringStartsWith('/api/media/uploads/settings/logo_', $path);
         $this->assertSame($path, Setting::where('key', 'logo_url')->value('value'));
-        $this->assertFileExists(public_path(ltrim($path, '/')));
+
+        $relative = app(MediaStorageService::class)->normalizeRelativePath($path);
+        $this->assertNotNull($relative);
+        $this->assertFileExists(app(MediaStorageService::class)->absolutePath($relative));
     }
 
     public function test_regular_user_cannot_change_site_settings(): void
