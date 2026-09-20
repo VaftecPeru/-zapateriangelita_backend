@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\PasswordResetAudit;
 use App\Models\User;
+use App\Models\UserRoleAudit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -27,9 +28,17 @@ class UserController extends Controller
 
     public function resetPassword(Request $request, User $user): JsonResponse
     {
-        if ($user->role === 'admin' && $request->user()?->id !== $user->id) {
+        $actor = $request->user();
+
+        if ($user->role === 'superadmin' && $actor?->id !== $user->id) {
             return response()->json([
-                'message' => 'No se permite restablecer la contraseña de otro administrador desde esta acción.',
+                'message' => 'No se permite restablecer la contraseña de otro superadministrador.',
+            ], 403);
+        }
+
+        if ($user->role === 'admin' && $actor?->role !== 'superadmin' && $actor?->id !== $user->id) {
+            return response()->json([
+                'message' => 'Solo un superadministrador puede restablecer la contraseña de otro administrador.',
             ], 403);
         }
 
@@ -129,10 +138,83 @@ class UserController extends Controller
         ]);
     }
 
-    public function destroy(User $user): JsonResponse
+    public function updateRole(Request $request, User $user): JsonResponse
     {
-        if (auth()->id() === $user->id) {
+        $actor = $request->user();
+
+        if (!$actor || $actor->role !== 'superadmin') {
+            return response()->json([
+                'message' => 'Solo el superadministrador puede gestionar roles de usuario.',
+            ], 403);
+        }
+
+        if ($actor->id === $user->id) {
+            return response()->json([
+                'message' => 'No puedes modificar tu propio rol desde esta opción.',
+            ], 422);
+        }
+
+        if ($user->role === 'superadmin') {
+            return response()->json([
+                'message' => 'La cuenta superadministradora no puede modificarse desde esta opción.',
+            ], 422);
+        }
+
+        $validated = $request->validate([
+            'role' => ['required', 'string', 'in:user,admin'],
+        ]);
+
+        $oldRole = $user->role ?: 'user';
+        $newRole = $validated['role'];
+
+        if ($oldRole === $newRole) {
+            return response()->json([
+                'success' => true,
+                'message' => 'El usuario ya tiene el rol seleccionado.',
+                'user' => $user,
+            ]);
+        }
+
+        $user->forceFill(['role' => $newRole])->save();
+
+        UserRoleAudit::create([
+            'user_id' => $user->id,
+            'actor_user_id' => $actor->id,
+            'old_role' => $oldRole,
+            'new_role' => $newRole,
+            'ip_address' => $request->ip(),
+        ]);
+
+        // Revocar sesiones para que el cambio de privilegios sea efectivo de inmediato.
+        $user->tokens()->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => $newRole === 'admin'
+                ? 'Rol de administrador asignado correctamente.'
+                : 'Rol de usuario asignado correctamente.',
+            'user' => $user->fresh(),
+        ]);
+    }
+
+    public function destroy(Request $request, User $user): JsonResponse
+    {
+        $actor = $request->user();
+
+        if ($actor?->id === $user->id) {
             return response()->json(['message' => 'No puedes eliminar tu propia cuenta.'], 403);
+        }
+
+        if ($user->role === 'superadmin') {
+            return response()->json([
+                'message' => 'No se permite eliminar una cuenta superadministradora.',
+            ], 403);
+        }
+
+        if ($user->role === 'admin' && $actor?->role !== 'superadmin') {
+            return response()->json([
+                'message' => 'Solo un superadministrador puede eliminar una cuenta administradora.',
+            ], 403);
         }
 
         $user->delete();

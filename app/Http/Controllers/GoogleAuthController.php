@@ -99,7 +99,7 @@ class GoogleAuthController extends Controller
                     ], 409);
                 }
 
-                if (($user->role ?? 'user') === 'admin') {
+                if (in_array(($user->role ?? 'user'), ['admin', 'superadmin'], true)) {
                     return response()->json([
                         'message' => 'Por seguridad, una cuenta administrativa debe vincular Google desde una sesión ya autenticada.',
                         'error_code' => 'GOOGLE_ADMIN_LINK_REQUIRED',
