@@ -17,7 +17,6 @@ class PurchaseConfirmedMail extends Mailable
     public function __construct(
         public Order $order,
         public ?User $user = null,
-        public ?string $temporaryPassword = null,
     ) {
     }
 
