@@ -37,13 +37,21 @@ return new class extends Migration
             ->first();
 
         if ($delivery) {
+            $updates = [
+                'code' => 'delivery',
+                'updated_at' => now(),
+            ];
+
+            // Si la columna ya existía en producción, conserva el estado configurado
+            // por el administrador. Una reconciliación de migraciones no debe
+            // reactivar delivery de forma silenciosa.
+            if ($delivery->is_active === null) {
+                $updates['is_active'] = true;
+            }
+
             DB::table('additional_services')
                 ->where('id', $delivery->id)
-                ->update([
-                    'code' => 'delivery',
-                    'is_active' => true,
-                    'updated_at' => now(),
-                ]);
+                ->update($updates);
         } else {
             DB::table('additional_services')->insert([
                 'name' => 'Costo de delivery',
