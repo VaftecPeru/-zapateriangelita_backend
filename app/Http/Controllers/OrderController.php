@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\OrderStatusMail;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
@@ -13,6 +14,8 @@ use App\Services\DeliveryCostService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 
 class OrderController extends Controller
@@ -292,8 +295,27 @@ class OrderController extends Controller
             'status' => 'required|in:sin_preparar,preparado,enviado,entregado,finalizado,cancelado',
         ]);
 
+        $previousStatus = (string) $order->status;
         $order->update(['status' => $validated['status']]);
-        return response()->json($order);
+
+        if ($previousStatus !== (string) $order->status) {
+            $recipient = strtolower(trim((string) ($order->customer_email ?: $order->user()->value('email'))));
+
+            if ($recipient !== '') {
+                try {
+                    Mail::to($recipient)->send(new OrderStatusMail($order->fresh()));
+                } catch (\Throwable $e) {
+                    Log::warning('ORDER_STATUS_EMAIL_FAILED', [
+                        'order_id' => $order->id,
+                        'status' => $order->status,
+                        'exception' => get_class($e),
+                        'message' => $e->getMessage(),
+                    ]);
+                }
+            }
+        }
+
+        return response()->json($order->fresh());
     }
 
     /**
