@@ -28,6 +28,11 @@ return new class extends Migration
         }
 
         DB::table('products')
+            ->whereNotNull('discount')
+            ->whereRaw("TRIM(discount) = ''")
+            ->update(['discount' => null]);
+
+        DB::table('products')
             ->whereNotNull('product_code')
             ->orderBy('id')
             ->get(['id', 'product_code'])
