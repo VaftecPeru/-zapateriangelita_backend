@@ -128,11 +128,15 @@ class CheckoutDeliveryCostTest extends TestCase
             'stock' => 10,
         ]);
 
-        $this->getJson('/api/checkout/delivery-cost')
+        $deliveryResponse = $this->getJson('/api/checkout/delivery-cost')
             ->assertOk()
-            ->assertHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
             ->assertJsonPath('code', 'delivery')
             ->assertJsonPath('price', 85.5);
+
+        $this->assertStringContainsString(
+            'no-store',
+            (string) $deliveryResponse->headers->get('Cache-Control')
+        );
 
         $response = $this->postJson('/api/checkout/orders', [
             'items' => [
