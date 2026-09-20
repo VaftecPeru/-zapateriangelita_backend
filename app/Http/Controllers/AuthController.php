@@ -2,14 +2,16 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\PasswordChangedMail;
+use App\Mail\WelcomeUserMail;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
-use App\Mail\WelcomeUserMail;
 
 class AuthController extends Controller
 {
@@ -75,8 +77,12 @@ class AuthController extends Controller
 
         try {
             Mail::to($user->email)->send(new WelcomeUserMail($user));
-        } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error('Error sending welcome email to ' . $user->email . ': ' . $e->getMessage());
+        } catch (\Throwable $e) {
+            Log::error('WELCOME_EMAIL_FAILED', [
+                'user_id' => $user->id,
+                'exception' => get_class($e),
+                'message' => $e->getMessage(),
+            ]);
         }
 
         $token = $user->createToken('auth_token')->plainTextToken;
@@ -208,6 +214,17 @@ class AuthController extends Controller
                     'temporary_password_set_at' => null,
                 ])->setRememberToken(\Illuminate\Support\Str::random(60));
                 $user->save();
+                $user->tokens()->delete();
+
+                try {
+                    Mail::to($user->email)->send(new PasswordChangedMail($user, 'password_reset'));
+                } catch (\Throwable $e) {
+                    Log::error('PASSWORD_CHANGED_EMAIL_FAILED', [
+                        'user_id' => $user->id,
+                        'exception' => get_class($e),
+                        'message' => $e->getMessage(),
+                    ]);
+                }
             }
         );
 
