@@ -11,6 +11,7 @@ use App\Mail\WelcomeUserMail;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\User;
+use App\Services\DeferredOrderNotificationService;
 use App\Services\PurchaseNotificationService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Hash;
@@ -267,6 +268,17 @@ class TransactionalEmailNotificationTest extends TestCase
         $this->postJson('/api/auth/google/welcome')
             ->assertStatus(422)
             ->assertJsonPath('error_code', 'GOOGLE_ACCOUNT_NOT_LINKED');
+
+        Mail::assertNothingSent();
+    }
+
+    public function test_post_payment_email_is_scheduled_without_blocking_the_payment_response(): void
+    {
+        Mail::fake();
+        $user = $this->user('diferido@example.com');
+        $order = $this->paidOrder($user);
+
+        app(DeferredOrderNotificationService::class)->schedule($order, $user);
 
         Mail::assertNothingSent();
     }
