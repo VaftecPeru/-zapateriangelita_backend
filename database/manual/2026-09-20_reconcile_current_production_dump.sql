@@ -4,6 +4,11 @@ UPDATE products
 SET product_code = NULLIF(TRIM(product_code), '')
 WHERE product_code IS NOT NULL;
 
+UPDATE products
+SET discount = NULL
+WHERE discount IS NOT NULL
+  AND TRIM(discount) = '';
+
 ALTER TABLE products
 MODIFY COLUMN price DECIMAL(10,2) NOT NULL,
 MODIFY COLUMN discount DECIMAL(5,2) NULL,
