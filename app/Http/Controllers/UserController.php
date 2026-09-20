@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\PasswordChangedMail;
+use App\Mail\TemporaryPasswordMail;
 use App\Models\PasswordResetAudit;
 use App\Models\User;
 use App\Models\UserRoleAudit;
@@ -71,19 +73,14 @@ class UserController extends Controller
         ]);
 
         $emailSent = false;
-        if (($validated['send_email'] ?? false) && $user->email) {
+        if ($user->email) {
             try {
-                Mail::raw(
-                    "Hola {$user->name},\n\nSe restableció tu contraseña de Zapatería Angelita.\nContraseña temporal: {$temporaryPassword}\n\nAl iniciar sesión deberás crear una nueva contraseña personal.",
-                    function ($message) use ($user) {
-                        $message->to($user->email)
-                            ->subject('Contraseña temporal - Zapatería Angelita');
-                    }
-                );
+                Mail::to($user->email)->send(new TemporaryPasswordMail($user, $temporaryPassword));
                 $emailSent = true;
             } catch (\Throwable $e) {
-                Log::warning('No se pudo enviar la contraseña temporal por correo.', [
+                Log::warning('TEMPORARY_PASSWORD_EMAIL_FAILED', [
                     'user_id' => $user->id,
+                    'exception' => get_class($e),
                     'message' => $e->getMessage(),
                 ]);
             }
@@ -137,6 +134,16 @@ class UserController extends Controller
             'action' => 'user_changed_temporary_password',
             'ip_address' => $request->ip(),
         ]);
+
+        try {
+            Mail::to($user->email)->send(new PasswordChangedMail($user, 'temporary_password_changed'));
+        } catch (\Throwable $e) {
+            Log::warning('PASSWORD_CHANGED_EMAIL_FAILED', [
+                'user_id' => $user->id,
+                'exception' => get_class($e),
+                'message' => $e->getMessage(),
+            ]);
+        }
 
         return response()->json([
             'success' => true,
