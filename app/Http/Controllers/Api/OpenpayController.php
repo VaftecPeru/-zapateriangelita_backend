@@ -347,7 +347,7 @@ class OpenpayController extends Controller
         }
 
         try {
-            return DB::transaction(function () use ($order, $merchantId, $privateKey, $baseUrl, $validated) {
+            return DB::transaction(function () use ($order, $merchantId, $privateKey, $baseUrl, $validated, $user) {
                 $order = Order::where('id', $order->id)->lockForUpdate()->firstOrFail();
                 if ((string) $order->payment_transaction_id !== $validated['transaction_id']) {
                     return response()->json(['ok' => false, 'message' => 'El intento de pago cambió.'], 409);
