@@ -9,6 +9,7 @@ use App\Models\ProductSize;
 use App\Models\ProductVariantStock;
 use App\Models\Coupon;
 use App\Models\ShippingMethod;
+use App\Services\DeliveryCostService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -146,8 +147,9 @@ class OrderController extends Controller
                 $discount = $coupon->applyDiscount($subtotal);
             }
 
-            // Costo de envío
-            $shippingCost = 0;
+            // Costo de envío. Si no se eligió un método histórico,
+            // usa el concepto de delivery administrado desde Servicios.
+            $shippingCost = app(DeliveryCostService::class)->current();
             if (!empty($validated['shipping_method_id'])) {
                 $shippingMethod = ShippingMethod::find($validated['shipping_method_id']);
                 if ($shippingMethod) {
