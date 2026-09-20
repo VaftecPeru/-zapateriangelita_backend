@@ -163,6 +163,9 @@ class ProductController extends Controller
             'azul' => '#2563eb', 'verde' => '#2e8b57', 'amarillo' => '#facc15',
             'rosa' => '#f472b6', 'morado' => '#7c3aed', 'gris' => '#9ca3af',
             'cafe' => '#8b5e3c', 'marron' => '#8b5e3c', 'beige' => '#d6c2a1',
+            'celeste' => '#7dd3fc', 'azul cielo' => '#7dd3fc', 'turquesa' => '#2dd4bf',
+            'naranja' => '#f97316', 'vino' => '#7f1d1d', 'dorado' => '#d4a017',
+            'plateado' => '#c0c0c0',
         ];
         $colors = collect(preg_split('/[,\/|]+/', (string) $product->color))
             ->map(fn ($color) => trim($color))
