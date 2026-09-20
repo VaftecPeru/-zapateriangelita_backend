@@ -6,14 +6,19 @@ use App\Models\AdditionalService;
 use App\Services\DeliveryCostService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Schema;
 
 class AdditionalServiceController extends Controller
 {
     public function index(): JsonResponse
     {
-        return response()->json(AdditionalService::orderByRaw("CASE WHEN code = 'delivery' THEN 0 ELSE 1 END")
-            ->orderBy('name')
-            ->get());
+        $query = AdditionalService::query();
+
+        if (Schema::hasColumn('additional_services', 'code')) {
+            $query->orderByRaw("CASE WHEN code = 'delivery' THEN 0 ELSE 1 END");
+        }
+
+        return response()->json($query->orderBy('name')->get());
     }
 
     public function delivery(DeliveryCostService $deliveryCost): JsonResponse
