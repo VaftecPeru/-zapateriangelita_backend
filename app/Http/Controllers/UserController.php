@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\PasswordResetAudit;
 use App\Models\User;
 use App\Models\UserRoleAudit;
+use App\Services\UserVisibilityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -14,15 +15,21 @@ use Illuminate\Support\Str;
 
 class UserController extends Controller
 {
-    public function index(): JsonResponse
+    public function index(Request $request, UserVisibilityService $visibility): JsonResponse
     {
-        $users = User::orderBy('created_at', 'desc')->get();
-        return response()->json($users);
+        $actor = $request->user();
+        return response()->json($visibility->listFor($actor));
     }
 
-    public function show(string $id): JsonResponse
+    public function show(Request $request, string $id, UserVisibilityService $visibility): JsonResponse
     {
-        $user = User::findOrFail($id);
+        $actor = $request->user();
+        $user = $visibility->findFor($actor, (int) $id);
+
+        if (!$user) {
+            return response()->json(['message' => 'Usuario no encontrado.'], 404);
+        }
+
         return response()->json($user);
     }
 
