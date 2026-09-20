@@ -6,20 +6,29 @@ use App\Models\Product;
 use App\Models\ProductColor;
 use App\Models\ProductSize;
 use App\Models\ProductVariantStock;
+use App\Services\MediaStorageService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 
 class ProductController extends Controller
 {
+    public function __construct(private readonly MediaStorageService $media)
+    {
+    }
 
     private function deleteUploadImages(array $images, array $keptImages = []): void
     {
-        $keptPaths = array_map(fn ($image) => $this->uploadPath($image), $keptImages);
+        $kept = array_values(array_filter(array_map(
+            fn ($image) => $this->media->normalizeRelativePath($image),
+            $keptImages,
+        )));
+
         foreach (array_unique($images) as $image) {
-            $path = $this->uploadPath($image);
-            if ($path && !in_array($path, $keptPaths, true) && is_file($path)) {
-                @unlink($path);
+            $relative = $this->media->normalizeRelativePath($image);
+
+            if ($relative && !in_array($relative, $kept, true)) {
+                $this->media->deleteReference($image);
             }
         }
     }
@@ -40,94 +49,15 @@ class ProductController extends Controller
         return $result;
     }
 
-    private function uploadPath(?string $image): ?string
-    {
-        if (!$image) {
-            return null;
-        }
-
-        $path = parse_url($image, PHP_URL_PATH) ?: $image;
-        $path = '/' . ltrim($path, '/');
-
-        $relativePath = null;
-        if (str_starts_with($path, '/api/media/')) {
-            $relativePath = ltrim(substr($path, strlen('/api/media/')), '/');
-        } elseif (str_starts_with($path, '/storage/')) {
-            $relativePath = ltrim(substr($path, strlen('/storage/')), '/');
-        } elseif (str_starts_with($path, '/uploads/')) {
-            $relativePath = ltrim($path, '/');
-        }
-
-        if ($relativePath) {
-            $storageRoot = realpath(storage_path('app/public'));
-            $storageFile = realpath(storage_path('app/public/' . $relativePath));
-            if ($storageRoot && $storageFile && str_starts_with($storageFile, $storageRoot . DIRECTORY_SEPARATOR)) {
-                return $storageFile;
-            }
-        }
-
-        if (str_starts_with($path, '/uploads/')) {
-            $legacyRoot = realpath(public_path('uploads'));
-            $legacyFile = realpath(public_path(ltrim($path, '/')));
-            if ($legacyRoot && $legacyFile && str_starts_with($legacyFile, $legacyRoot . DIRECTORY_SEPARATOR)) {
-                return $legacyFile;
-            }
-        }
-
-        return null;
-    }
-
     private function optimizeImage($file, $subfolder = 'products')
     {
-        $mime = $file->getMimeType();
-        $sourcePath = $file->getPathname();
-        $filename = uniqid('prod_', true) . '.webp';
-        $uploadPath = storage_path('app/public/uploads/' . $subfolder);
-
-        if (!file_exists($uploadPath)) {
-            mkdir($uploadPath, 0755, true);
-        }
-
-        $image = null;
-        if ($mime === 'image/jpeg' || $mime === 'image/jpg') {
-            $image = imagecreatefromjpeg($sourcePath);
-        } elseif ($mime === 'image/png') {
-            $image = imagecreatefrompng($sourcePath);
-        } elseif ($mime === 'image/webp') {
-            $image = imagecreatefromwebp($sourcePath);
-        }
-
-        if (!$image) {
-            $path = $file->store($subfolder, 'uploads');
-            return '/api/media/uploads/' . ltrim($path, '/');
-        }
-
-        $width = imagesx($image);
-        $height = imagesy($image);
-        $maxWidth = 1200;
-
-        if ($width > $maxWidth) {
-            $newWidth = $maxWidth;
-            $newHeight = (int) round(($height / $width) * $newWidth);
-            $newImage = imagecreatetruecolor($newWidth, $newHeight);
-            imagealphablending($newImage, false);
-            imagesavealpha($newImage, true);
-            imagecopyresampled($newImage, $image, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
-            imagedestroy($image);
-            $image = $newImage;
-        }
-
-        $finalPath = $uploadPath . '/' . $filename;
-        if (function_exists('imagewebp')) {
-            imagewebp($image, $finalPath, 82);
-        } else {
-            $filename = str_replace('.webp', '.jpg', $filename);
-            $finalPath = $uploadPath . '/' . $filename;
-            imagejpeg($image, $finalPath, 82);
-        }
-
-        imagedestroy($image);
-        return '/api/media/uploads/' . $subfolder . '/' . $filename;
+        return $this->media->storeOptimizedImage(
+            $file,
+            $subfolder,
+            'prod_',
+            1200,
+            82,
+        );
     }
 
     private function syncVariants(Product $product, array $existingSizeStock = []): void
@@ -165,7 +95,9 @@ class ProductController extends Controller
             'cafe' => '#8b5e3c', 'marron' => '#8b5e3c', 'beige' => '#d6c2a1',
             'celeste' => '#7dd3fc', 'azul cielo' => '#7dd3fc', 'turquesa' => '#2dd4bf',
             'naranja' => '#f97316', 'vino' => '#7f1d1d', 'dorado' => '#d4a017',
-            'plateado' => '#c0c0c0',
+            'plateado' => '#c0c0c0', 'arena' => '#d6b98c', 'café' => '#6f4e37',
+            'cafe' => '#6f4e37', 'crema' => '#fffdd0', 'marron oscuro' => '#4a2c2a',
+            'marrón oscuro' => '#4a2c2a',
         ];
         $colors = collect(preg_split('/[,\/|]+/', (string) $product->color))
             ->map(fn ($color) => trim($color))
