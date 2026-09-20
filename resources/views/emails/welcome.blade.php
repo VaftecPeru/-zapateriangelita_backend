@@ -121,11 +121,15 @@
             <h2>¡Hola, {{ $user->name }}!</h2>
             <p>Queríamos darte una cálida bienvenida a Zapateriangelita. Tu cuenta ha sido creada exitosamente y ahora
                 eres parte de nuestra exclusiva comunidad.</p>
-            <p>Tu cuenta fue creada correctamente. Por seguridad, nunca enviamos ni mostramos tu contraseña por correo.</p>
+            <p>Tu cuenta fue creada correctamente. Por seguridad, nunca enviamos ni mostramos tu contraseña personal por correo.</p>
 
             <div class="credentials-box">
                 <p><strong>Email:</strong> {{ $user->email }}</p>
-                <p><strong>Seguridad:</strong> Usa la contraseña que registraste o restablécela desde la pantalla de acceso si la olvidaste.</p>
+                @if($registrationMethod === 'google')
+                    <p><strong>Acceso:</strong> Tu cuenta fue creada con Google. Usa el botón “Continuar con Google” para iniciar sesión.</p>
+                @else
+                    <p><strong>Seguridad:</strong> Usa la contraseña que registraste o restablécela desde la pantalla de acceso si la olvidaste.</p>
+                @endif
             </div>
 
             <div class="button-container">
