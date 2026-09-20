@@ -111,7 +111,7 @@
 <body>
     @php
         $frontend = rtrim(env('FRONTEND_URL', 'https://zapateriangelita.com'), '/');
-        $logo = app(\\App\\Services\\BrandingService::class)->logoUrl();
+        $logo = app(\App\Services\BrandingService::class)->logoUrl();
     @endphp
     <div class="container">
         <div class="header">
