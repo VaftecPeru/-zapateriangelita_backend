@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
+use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class ProductionDataMaintenanceTest extends TestCase
@@ -54,6 +55,8 @@ class ProductionDataMaintenanceTest extends TestCase
             $table->string('price');
             $table->string('discount')->nullable();
             $table->text('img')->nullable();
+            $table->text('images')->nullable();
+            $table->text('color_images')->nullable();
             $table->integer('stock')->nullable();
             $table->string('status')->default('normal');
             $table->timestamps();
@@ -64,6 +67,13 @@ class ProductionDataMaintenanceTest extends TestCase
             $table->unsignedBigInteger('product_id');
             $table->string('color');
             $table->string('hex')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('settings', function (Blueprint $table) {
+            $table->id();
+            $table->string('key')->unique();
+            $table->text('value')->nullable();
             $table->timestamps();
         });
 
@@ -95,6 +105,7 @@ class ProductionDataMaintenanceTest extends TestCase
     {
         File::deleteDirectory(storage_path('framework/testing/angelita_media_integrity'));
         @unlink(storage_path('app/public/uploads/products/legacy-test.webp'));
+        @unlink(storage_path('app/public/uploads/products/legacy-endpoint.webp'));
         parent::tearDown();
     }
 
@@ -114,6 +125,8 @@ class ProductionDataMaintenanceTest extends TestCase
             'price' => '190',
             'discount' => '5',
             'img' => '/api/media/uploads/products/producto.webp',
+            'images' => json_encode(['/api/media/uploads/products/producto.webp']),
+            'color_images' => json_encode([]),
             'stock' => 10,
             'status' => 'normal',
             'created_at' => now(),
@@ -225,6 +238,48 @@ class ProductionDataMaintenanceTest extends TestCase
         }
 
         $this->assertSame(10, $user->tokens()->count());
+    }
+
+    public function test_admin_can_consolidate_all_referenced_media(): void
+    {
+        $admin = User::create([
+            'name' => 'Administrador',
+            'email' => 'media-admin@example.com',
+            'password' => Hash::make('Secret123!'),
+            'role' => 'admin',
+        ]);
+
+        DB::table('products')->insert([
+            'id' => 88,
+            'product_code' => 'MEDIA-88',
+            'name' => 'Producto multimedia',
+            'price' => '100',
+            'discount' => null,
+            'img' => '/api/media/uploads/products/legacy-endpoint.webp',
+            'images' => json_encode(['/api/media/uploads/products/legacy-endpoint.webp']),
+            'color_images' => json_encode([]),
+            'stock' => 1,
+            'status' => 'normal',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $legacy = storage_path('app/public/uploads/products/legacy-endpoint.webp');
+        File::ensureDirectoryExists(dirname($legacy));
+        file_put_contents($legacy, 'legacy-endpoint-image');
+
+        Sanctum::actingAs($admin);
+
+        $this->postJson('/api/maintenance/media/migrate')
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.missing', 0);
+
+        $persistent = app(MediaStorageService::class)
+            ->absolutePath('uploads/products/legacy-endpoint.webp');
+
+        $this->assertFileExists($persistent);
+        $this->assertSame('legacy-endpoint-image', file_get_contents($persistent));
     }
 
     public function test_legacy_media_is_copied_to_persistent_root_on_first_read(): void
