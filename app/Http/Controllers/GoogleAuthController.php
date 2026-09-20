@@ -132,7 +132,7 @@ class GoogleAuthController extends Controller
 
         if ($accountCreated) {
             try {
-                Mail::to($user->email)->send(new WelcomeUserMail($user));
+                Mail::to($user->email)->send(new WelcomeUserMail($user, 'google'));
             } catch (\Throwable $e) {
                 Log::error('GOOGLE_WELCOME_EMAIL_FAILED', [
                     'user_id' => $user->id,
