@@ -132,6 +132,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('throttle:20,1')
         ->post('/auth/google/link', [GoogleAuthController::class, 'link']);
 
+    // El correo de bienvenida se solicita después de crear la sesión para no
+    // bloquear el registro Google mientras responde el servidor SMTP.
+    Route::middleware('throttle:3,1')
+        ->post('/auth/google/welcome', [GoogleAuthController::class, 'sendWelcome']);
+
     Route::get('/my-bookings', [LeadController::class, 'clientLeads']);
 
     // Categorías y subcategorías
