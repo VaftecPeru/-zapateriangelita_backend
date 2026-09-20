@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Schema;
 
 class PurchaseNotificationService
 {
-    public function send(Order $order, ?User $user = null, ?string $temporaryPassword = null): bool
+    public function send(Order $order, ?User $user = null): bool
     {
         $order = Order::with('items')->find($order->id);
 
@@ -45,7 +45,7 @@ class PurchaseNotificationService
 
         try {
             Mail::to($recipient)->send(
-                new PurchaseConfirmedMail($order->fresh('items'), $user, $temporaryPassword)
+                new PurchaseConfirmedMail($order->fresh('items'), $user)
             );
 
             Log::info('PURCHASE_EMAIL_SENT', [
