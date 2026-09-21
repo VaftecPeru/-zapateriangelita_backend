@@ -1023,9 +1023,9 @@ class CheckoutController extends Controller
                 'message' => 'La tarjeta fue rechazada.',
             ],
             '3005' => [
-                'key' => 'ANTIFRAUD_REJECTED',
-                'title' => 'Tarjeta rechazada por seguridad',
-                'message' => 'La tarjeta ha sido rechazada por el sistema antifraudes.',
+                'key' => 'CARD_DECLINED',
+                'title' => 'Tarjeta rechazada',
+                'message' => 'La tarjeta fue rechazada.',
             ],
             '3006' => [
                 'key' => 'OPERATION_NOT_ALLOWED',
