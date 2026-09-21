@@ -978,9 +978,9 @@ class CheckoutController extends Controller
                 'message' => 'La tarjeta no tiene fondos suficientes.',
             ],
             '3004' => [
-                'key' => 'CARD_REPORTED_STOLEN',
-                'title' => 'Tarjeta robada',
-                'message' => 'La tarjeta ha sido identificada como una tarjeta robada.',
+                'key' => 'CARD_DECLINED',
+                'title' => 'Tarjeta rechazada',
+                'message' => 'La tarjeta fue rechazada.',
             ],
             '3005' => [
                 'key' => 'ANTIFRAUD_REJECTED',
