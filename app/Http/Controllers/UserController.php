@@ -35,9 +35,16 @@ class UserController extends Controller
         return response()->json($user);
     }
 
-    public function resetPassword(Request $request, User $user): JsonResponse
+    public function resetPassword(Request $request, string $id): JsonResponse
     {
         $actor = $request->user();
+        $user = User::find((int) $id);
+
+        if (!$user) {
+            return response()->json([
+                'message' => 'El usuario ya no existe. Actualiza la lista e intenta nuevamente.',
+            ], 404);
+        }
 
         if ($user->role === 'superadmin' && $actor?->id !== $user->id) {
             return response()->json([
@@ -152,9 +159,16 @@ class UserController extends Controller
         ]);
     }
 
-    public function updateRole(Request $request, User $user): JsonResponse
+    public function updateRole(Request $request, string $id): JsonResponse
     {
         $actor = $request->user();
+        $user = User::find((int) $id);
+
+        if (!$user) {
+            return response()->json([
+                'message' => 'El usuario ya no existe. Actualiza la lista e intenta nuevamente.',
+            ], 404);
+        }
 
         if (!$actor || $actor->role !== 'superadmin') {
             return response()->json([
@@ -211,9 +225,19 @@ class UserController extends Controller
         ]);
     }
 
-    public function destroy(Request $request, User $user): JsonResponse
+    public function destroy(Request $request, string $id): JsonResponse
     {
         $actor = $request->user();
+        $user = User::find((int) $id);
+
+        // La eliminación es idempotente: una fila obsoleta del frontend no debe
+        // exponer una excepción de Route Model Binding ni bloquear la intranet.
+        if (!$user) {
+            return response()->json([
+                'success' => true,
+                'message' => 'El usuario ya no existía. La lista puede sincronizarse.',
+            ]);
+        }
 
         if ($actor?->id === $user->id) {
             return response()->json(['message' => 'No puedes eliminar tu propia cuenta.'], 403);
