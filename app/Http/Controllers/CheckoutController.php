@@ -963,6 +963,7 @@ class CheckoutController extends Controller
             'transaction_id' => ['required', 'string', 'max:100'],
             'amount' => ['required', 'numeric', 'gt:0'],
             'currency' => ['required', 'string', 'size:3'],
+            'guest_checkout' => ['sometimes', 'boolean'],
         ]);
 
         $expectedAmount = (int) round((float) $order->total * 100);
@@ -972,7 +973,8 @@ class CheckoutController extends Controller
         if (
             $expectedAmount !== $receivedAmount ||
             strtoupper($validated['currency']) !== $expectedCurrency ||
-            ($order->payment_reference && !hash_equals((string) $order->payment_reference, $validated['reference']))
+            ($order->payment_reference && !hash_equals((string) $order->payment_reference, $validated['reference'])) ||
+            ($order->payment_transaction_id && !hash_equals((string) $order->payment_transaction_id, $validated['transaction_id']))
         ) {
             return response()->json(['message' => 'Los datos del pago no coinciden con el pedido.'], 409);
         }
@@ -981,7 +983,10 @@ class CheckoutController extends Controller
         $order->payment_transaction_id = $validated['transaction_id'];
         $order->save();
 
-        $guestCheckout = empty($order->user_id);
+        // Conservar el contexto del checkout original. Si un webhook completó el
+        // pedido antes del retorno 3DS, el siguiente verify debe poder reemitir
+        // la sesión del cliente sin crear otra cuenta.
+        $guestCheckout = (bool) ($validated['guest_checkout'] ?? empty($order->user_id));
         $account = $this->completePaidOrder($order, $guestCheckout, false, true);
 
         return response()->json(array_merge([
@@ -1000,6 +1005,7 @@ class CheckoutController extends Controller
             'transaction_id' => ['nullable', 'string', 'max:100'],
             'amount' => ['required', 'numeric', 'gt:0'],
             'currency' => ['required', 'string', 'size:3'],
+            'guest_checkout' => ['sometimes', 'boolean'],
             'message' => ['nullable', 'string', 'max:1000'],
         ]);
 
@@ -1008,7 +1014,9 @@ class CheckoutController extends Controller
         if (
             $expectedAmount !== $receivedAmount ||
             strtoupper($validated['currency']) !== strtoupper((string) config('openpay.currency', 'MXN')) ||
-            ($order->payment_reference && !hash_equals((string) $order->payment_reference, $validated['reference']))
+            ($order->payment_reference && !hash_equals((string) $order->payment_reference, $validated['reference'])) ||
+            ($order->payment_transaction_id && !empty($validated['transaction_id'])
+                && !hash_equals((string) $order->payment_transaction_id, $validated['transaction_id']))
         ) {
             return response()->json(['message' => 'Los datos del pago no coinciden con el pedido.'], 409);
         }
