@@ -30,6 +30,10 @@ return [
 
     'currency' => env('OPENPAY_CURRENCY', 'MXN'),
 
+    // Recuperación automática compatible con cron de cPanel.
+    'cpanel_reconcile_after_minutes' => max(5, (int) env('OPENPAY_RECONCILE_AFTER_MINUTES', 10)),
+    'cpanel_reconcile_limit' => max(1, min(100, (int) env('OPENPAY_RECONCILE_LIMIT', 20))),
+
     'redirect_url' => env(
         'OPENPAY_REDIRECT_URL',
         'https://zapateriangelita.com/checkout'

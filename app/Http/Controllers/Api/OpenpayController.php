@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\CheckoutController;
 use App\Models\Order;
 use App\Services\CheckoutStockService;
 use App\Services\DeferredOrderNotificationService;
@@ -10,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class OpenpayController extends Controller
@@ -638,25 +640,32 @@ class OpenpayController extends Controller
                 in_array($type, ['charge.succeeded', 'charge.completed'], true) &&
                 $confirmedStatus === 'completed'
             ) {
-                DB::transaction(function () use ($order, $confirmedId) {
-                    $lockedOrder = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+                $order->payment_transaction_id = $confirmedId;
+                $order->save();
 
-                    if ($lockedOrder->payment_status === 'paid') {
-                        return;
-                    }
+                // Completa también creación/vinculación del cliente y notificaciones.
+                // En instalaciones heredadas sin las tablas de cliente todavía disponibles,
+                // conserva una finalización mínima y segura del pedido.
+                $canCompleteCustomerFlow = !empty($order->user_id)
+                    || (Schema::hasTable('users') && Schema::hasTable('addresses'));
 
-                    $lockedOrder->payment_method = 'openpay';
-                    $lockedOrder->payment_transaction_id = $confirmedId;
-                    $lockedOrder->payment_status = 'paid';
-                    $lockedOrder->payment_error = null;
-                    $lockedOrder->paid_at = $lockedOrder->paid_at ?: now();
-                    $lockedOrder->status = 'sin_preparar';
-                    $lockedOrder->save();
-                });
-
-                $paidOrder = Order::with('items', 'user')->find($order->id);
-                if ($paidOrder) {
-                    app(DeferredOrderNotificationService::class)->schedule($paidOrder, $paidOrder->user);
+                if ($canCompleteCustomerFlow) {
+                    app(CheckoutController::class)->completePaidOrder(
+                        $order,
+                        empty($order->user_id),
+                        true,
+                    );
+                } else {
+                    DB::transaction(function () use ($order, $confirmedId) {
+                        $lockedOrder = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+                        $lockedOrder->payment_method = 'openpay';
+                        $lockedOrder->payment_transaction_id = $confirmedId;
+                        $lockedOrder->payment_status = 'paid';
+                        $lockedOrder->payment_error = null;
+                        $lockedOrder->paid_at = $lockedOrder->paid_at ?: now();
+                        $lockedOrder->status = 'sin_preparar';
+                        $lockedOrder->save();
+                    });
                 }
 
                 return response()->json(['received' => true, 'type' => $type, 'reconciled' => true], 200);
