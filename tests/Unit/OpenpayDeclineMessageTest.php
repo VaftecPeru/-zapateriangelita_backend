@@ -25,4 +25,21 @@ class OpenpayDeclineMessageTest extends TestCase
         $this->assertSame('Tarjeta rechazada', $result['title']);
         $this->assertSame('La tarjeta fue rechazada.', $result['message']);
     }
+
+    #[Test]
+    public function error_3005_is_presented_as_generic_card_rejection(): void
+    {
+        $controller = app(CheckoutController::class);
+        $method = new ReflectionMethod(CheckoutController::class, 'normalizeOpenpayDecline');
+
+        $result = $method->invoke($controller, [
+            'error_code' => 3005,
+            'description' => 'The card was rejected by antifraud',
+        ]);
+
+        $this->assertSame('3005', $result['code']);
+        $this->assertSame('CARD_DECLINED', $result['key']);
+        $this->assertSame('Tarjeta rechazada', $result['title']);
+        $this->assertSame('La tarjeta fue rechazada.', $result['message']);
+    }
 }
