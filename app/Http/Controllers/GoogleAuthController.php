@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\GoogleIdentityUnavailable;
 use App\Mail\WelcomeUserMail;
 use App\Models\User;
 use App\Services\AccessTokenService;
@@ -44,6 +45,8 @@ class GoogleAuthController extends Controller
 
         try {
             $claims = $this->verifyCredential($validated['credential']);
+        } catch (GoogleIdentityUnavailable $e) {
+            return $this->unavailableResponse($e);
         } catch (\Throwable $e) {
             Log::warning('GOOGLE_AUTH_INVALID_CREDENTIAL', [
                 'reason' => $e->getMessage(),
@@ -187,6 +190,8 @@ class GoogleAuthController extends Controller
 
         try {
             $claims = $this->verifyCredential($validated['credential']);
+        } catch (GoogleIdentityUnavailable $e) {
+            return $this->unavailableResponse($e);
         } catch (\Throwable $e) {
             Log::warning('GOOGLE_LINK_INVALID_CREDENTIAL', [
                 'user_id' => $user?->id,
@@ -380,30 +385,46 @@ class GoogleAuthController extends Controller
 
     private function googleCertificates(bool $forceRefresh = false): array
     {
-        $cacheKey = 'google_identity_x509_certs_v1';
-
-        if ($forceRefresh) {
-            Cache::forget($cacheKey);
+        try {
+            $cacheKey = 'google_identity_x509_certs_v1';
+    
+            if ($forceRefresh) {
+                Cache::forget($cacheKey);
+            }
+    
+            return Cache::remember($cacheKey, now()->addMinutes(50), function () {
+                $response = Http::connectTimeout(3)
+                    ->timeout(5)
+                    ->retry(1, 150)
+                    ->acceptJson()
+                    ->get(self::GOOGLE_CERTS_URL);
+    
+                if (!$response->successful()) {
+                    throw new \RuntimeException('Unable to download Google signing certificates.');
+                }
+    
+                $certificates = $response->json();
+                if (!is_array($certificates) || $certificates === []) {
+                    throw new \RuntimeException('Google signing certificates are empty.');
+                }
+    
+                return $certificates;
+            });
+        } catch (\Throwable $e) {
+            throw new GoogleIdentityUnavailable('Google certificate service unavailable.', 0, $e);
         }
+    }
 
-        return Cache::remember($cacheKey, now()->addMinutes(50), function () {
-            $response = Http::connectTimeout(3)
-                ->timeout(5)
-                ->retry(1, 150)
-                ->acceptJson()
-                ->get(self::GOOGLE_CERTS_URL);
+    private function unavailableResponse(GoogleIdentityUnavailable $exception): JsonResponse
+    {
+        Log::warning('GOOGLE_IDENTITY_UNAVAILABLE', [
+            'exception' => get_class($exception->getPrevious() ?? $exception),
+        ]);
 
-            if (!$response->successful()) {
-                throw new \RuntimeException('Unable to download Google signing certificates.');
-            }
-
-            $certificates = $response->json();
-            if (!is_array($certificates) || $certificates === []) {
-                throw new \RuntimeException('Google signing certificates are empty.');
-            }
-
-            return $certificates;
-        });
+        return response()->json([
+            'message' => 'No pudimos conectar con Google en este momento. Espera unos segundos y vuelve a intentar; tu cuenta no se ha eliminado.',
+            'error_code' => 'GOOGLE_TEMPORARILY_UNAVAILABLE',
+        ], 503)->header('Retry-After', '5');
     }
 
     private function isGoogleAuthoritativeForEmail(array $claims): bool
