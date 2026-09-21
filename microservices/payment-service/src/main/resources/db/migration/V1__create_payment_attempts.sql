@@ -1,0 +1,22 @@
+CREATE TABLE payment_attempts (
+    id VARCHAR(36) PRIMARY KEY,
+    order_id BIGINT NOT NULL,
+    order_code VARCHAR(64) NOT NULL,
+    reference VARCHAR(120) NOT NULL UNIQUE,
+    idempotency_key VARCHAR(180) NOT NULL UNIQUE,
+    transaction_id VARCHAR(120) NULL,
+    amount DECIMAL(12,2) NOT NULL,
+    currency CHAR(3) NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    openpay_status VARCHAR(64) NULL,
+    redirect_url VARCHAR(1000) NULL,
+    error_code VARCHAR(32) NULL,
+    error_message VARCHAR(1200) NULL,
+    guest_checkout BOOLEAN NOT NULL DEFAULT TRUE,
+    notification_sent BOOLEAN NOT NULL DEFAULT FALSE,
+    voucher_generated BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_payment_order (order_id),
+    INDEX idx_payment_transaction (transaction_id)
+);
