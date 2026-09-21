@@ -95,7 +95,7 @@ Route::post('/openpay/webhook', [
 
 // Checkout de tienda. Se permite comprar como invitado; cada pedido emite un
 // token cifrado y temporal que autoriza únicamente su propio flujo de pago.
-Route::middleware('throttle:30,1')->group(function () {
+Route::middleware('throttle:checkout')->group(function () {
     Route::post('/checkout/orders', [CheckoutController::class, 'createOrder']);
     Route::post('/checkout/payments/openpay/charge', [CheckoutController::class, 'charge']);
     Route::get('/checkout/payments/openpay/verify', [CheckoutController::class, 'verify']);
