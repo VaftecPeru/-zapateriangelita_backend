@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class OpenpayController extends Controller
@@ -643,13 +644,29 @@ class OpenpayController extends Controller
                 $order->save();
 
                 // Completa también creación/vinculación del cliente y notificaciones.
-                // Así el flujo no depende de que el navegador vuelva correctamente
-                // del 3D Secure para finalizar la compra.
-                app(CheckoutController::class)->completePaidOrder(
-                    $order,
-                    empty($order->user_id),
-                    true,
-                );
+                // En instalaciones heredadas sin las tablas de cliente todavía disponibles,
+                // conserva una finalización mínima y segura del pedido.
+                $canCompleteCustomerFlow = !empty($order->user_id)
+                    || (Schema::hasTable('users') && Schema::hasTable('addresses'));
+
+                if ($canCompleteCustomerFlow) {
+                    app(CheckoutController::class)->completePaidOrder(
+                        $order,
+                        empty($order->user_id),
+                        true,
+                    );
+                } else {
+                    DB::transaction(function () use ($order, $confirmedId) {
+                        $lockedOrder = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+                        $lockedOrder->payment_method = 'openpay';
+                        $lockedOrder->payment_transaction_id = $confirmedId;
+                        $lockedOrder->payment_status = 'paid';
+                        $lockedOrder->payment_error = null;
+                        $lockedOrder->paid_at = $lockedOrder->paid_at ?: now();
+                        $lockedOrder->status = 'sin_preparar';
+                        $lockedOrder->save();
+                    });
+                }
 
                 return response()->json(['received' => true, 'type' => $type, 'reconciled' => true], 200);
             }
