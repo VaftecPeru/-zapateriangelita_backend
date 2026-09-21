@@ -229,6 +229,18 @@ class CheckoutController extends Controller
             ]);
         }
 
+        if ($order->payment_status === 'processing' && empty($order->payment_transaction_id)) {
+            // Un timeout o una respuesta incierta puede dejar el pedido reservado
+            // antes de que logremos guardar el id del cargo. Antes de rechazar el
+            // siguiente intento, conciliamos por la referencia única enviada a Openpay.
+            // Solo liberamos el intento si Openpay confirma que no existe cargo.
+            $recovery = $this->reconcileProcessingAttemptWithoutTransaction($order, $guestCheckout);
+            if ($recovery instanceof JsonResponse) {
+                return $recovery;
+            }
+            $order->refresh();
+        }
+
         if ($order->payment_status === 'processing') {
             return response()->json([
                 'ok' => false,
@@ -767,6 +779,206 @@ class CheckoutController extends Controller
     private function releaseStockReservation(Order $order, string $reason): void
     {
         app(CheckoutStockService::class)->release($order, $reason);
+    }
+
+    /**
+     * Concilia un intento que quedó en processing sin transaction_id.
+     *
+     * El estado se establece antes del POST /charges para reservar stock. Si la
+     * respuesta HTTP se pierde, no podemos asumir que el cargo no existe porque
+     * repetirlo podría duplicar el cobro. Consultamos Openpay por el order_id
+     * (payment_reference) que fue persistido antes del POST. Un resultado vacío
+     * y exitoso es la única condición que permite liberar la reserva y reintentar.
+     */
+    private function reconcileProcessingAttemptWithoutTransaction(
+        Order $order,
+        bool $guestCheckout
+    ): ?JsonResponse {
+        $reference = trim((string) $order->payment_reference);
+
+        if ($reference === '') {
+            Log::warning('CHECKOUT_OPENPAY_ORPHAN_WITHOUT_REFERENCE', [
+                'order_id' => $order->id,
+            ]);
+            $this->releaseStockReservation(
+                $order,
+                'Intento de pago incompleto sin referencia Openpay.'
+            );
+            return null;
+        }
+
+        $configurationErrors = $this->configurationErrors();
+        if ($configurationErrors) {
+            return response()->json([
+                'ok' => false,
+                'payment_status' => 'processing',
+                'message' => 'No fue posible conciliar el intento anterior de pago.',
+                'configuration_errors' => $configurationErrors,
+            ], 500);
+        }
+
+        $merchantId = rawurlencode((string) config('openpay.merchant_id'));
+        $privateKey = (string) config('openpay.private_key');
+        $baseUrl = rtrim((string) config('openpay.base_url'), '/');
+
+        try {
+            Log::channel('openpay')->info('OPENPAY_ORPHAN_RECONCILIATION_REQUEST', [
+                'order_id' => $order->id,
+                'reference' => $reference,
+            ]);
+
+            $response = Http::connectTimeout(5)
+                ->timeout(12)
+                ->withoutRedirecting()
+                ->withBasicAuth($privateKey, '')
+                ->acceptJson()
+                ->get("{$baseUrl}/v1/{$merchantId}/charges", [
+                    'order_id' => $reference,
+                    'limit' => 10,
+                ]);
+
+            $payload = $response->json();
+
+            if (!$response->successful() || !is_array($payload)) {
+                Log::warning('CHECKOUT_OPENPAY_ORPHAN_RECONCILIATION_UNCERTAIN', [
+                    'order_id' => $order->id,
+                    'reference' => $reference,
+                    'http_status' => $response->status(),
+                ]);
+
+                return response()->json([
+                    'ok' => false,
+                    'payment_status' => 'processing',
+                    'stage' => 'reconcile',
+                    'message' => 'Estamos verificando el intento anterior. No vuelvas a cobrar todavía.',
+                ], 502);
+            }
+
+            $charges = isset($payload['data']) && is_array($payload['data'])
+                ? $payload['data']
+                : (array_is_list($payload) ? $payload : []);
+
+            $expectedAmount = (int) round((float) $order->total * 100);
+            $expectedCurrency = strtoupper((string) config('openpay.currency', 'MXN'));
+            $matchingCharge = null;
+
+            foreach ($charges as $charge) {
+                if (!is_array($charge)) {
+                    continue;
+                }
+
+                $amountMatches = isset($charge['amount']) && is_numeric($charge['amount'])
+                    && (int) round((float) $charge['amount'] * 100) === $expectedAmount;
+                $currencyMatches = strtoupper((string) ($charge['currency'] ?? '')) === $expectedCurrency;
+
+                if (
+                    (string) ($charge['order_id'] ?? '') === $reference &&
+                    $amountMatches &&
+                    $currencyMatches &&
+                    !empty($charge['id'])
+                ) {
+                    $matchingCharge = $charge;
+                    break;
+                }
+            }
+
+            if (!$matchingCharge) {
+                Log::channel('openpay')->info('OPENPAY_ORPHAN_RECONCILIATION_EMPTY', [
+                    'order_id' => $order->id,
+                    'reference' => $reference,
+                ]);
+
+                $this->releaseStockReservation(
+                    $order,
+                    'Openpay confirmó que el intento anterior no generó un cargo.'
+                );
+
+                // null indica al charge() que ya es seguro reservar de nuevo y
+                // utilizar el token recién recibido, sin pedir un segundo clic.
+                return null;
+            }
+
+            $order->payment_transaction_id = (string) $matchingCharge['id'];
+            $order->payment_reference = $reference;
+            $order->save();
+
+            $openpayStatus = strtolower((string) ($matchingCharge['status'] ?? ''));
+            $paymentMethodType = strtolower((string) ($matchingCharge['payment_method']['type'] ?? ''));
+            $paymentRedirectUrl = $matchingCharge['payment_method']['url'] ?? null;
+
+            Log::channel('openpay')->info('OPENPAY_ORPHAN_RECONCILIATION_FOUND', [
+                'order_id' => $order->id,
+                'reference' => $reference,
+                'transaction_id' => $order->payment_transaction_id,
+                'openpay_status' => $openpayStatus,
+            ]);
+
+            if ($openpayStatus === 'completed') {
+                $account = $this->completePaidOrder($order, $guestCheckout);
+
+                return response()->json(array_merge([
+                    'ok' => true,
+                    'message' => 'Pago aprobado correctamente.',
+                    'payment_status' => 'paid',
+                    'openpay_status' => $openpayStatus,
+                    'order_id' => $order->id,
+                    'order_code' => $order->code,
+                    'transaction_id' => $order->payment_transaction_id,
+                ], $account));
+            }
+
+            if (in_array($openpayStatus, ['failed', 'cancelled'], true)) {
+                $providerMessage = (string) (
+                    $matchingCharge['error_message']
+                    ?? $matchingCharge['description']
+                    ?? 'Openpay confirmó que el pago no fue aprobado.'
+                );
+                $error = $this->normalizeOpenpayDecline($matchingCharge);
+                $this->releaseStockReservation($order, $providerMessage);
+
+                return response()->json([
+                    'ok' => false,
+                    'payment_status' => 'failed',
+                    'stage' => 'reconcile',
+                    'openpay_status' => $openpayStatus,
+                    'order_id' => $order->id,
+                    'transaction_id' => $order->payment_transaction_id,
+                    'error_key' => $error['key'],
+                    'error_title' => $error['title'],
+                    'error_code' => $error['code'],
+                    'message' => $error['message'],
+                ], 422);
+            }
+
+            return response()->json([
+                'ok' => true,
+                'payment_status' => 'processing',
+                'stage' => $paymentRedirectUrl ? '3ds_required' : 'reconcile',
+                'openpay_status' => $openpayStatus,
+                'order_id' => $order->id,
+                'order_code' => $order->code,
+                'transaction_id' => $order->payment_transaction_id,
+                'requires_redirect' => $paymentMethodType === 'redirect' && !empty($paymentRedirectUrl),
+                'redirect_url' => $paymentRedirectUrl,
+                'message' => $paymentRedirectUrl
+                    ? 'Recuperamos el cargo anterior. Continúa con la verificación 3D Secure.'
+                    : 'Recuperamos el cargo anterior y Openpay todavía lo está procesando.',
+            ], 202);
+        } catch (Throwable $e) {
+            Log::warning('CHECKOUT_OPENPAY_ORPHAN_RECONCILIATION_FAILED', [
+                'order_id' => $order->id,
+                'reference' => $reference,
+                'exception' => get_class($e),
+                'line' => $e->getLine(),
+            ]);
+
+            return response()->json([
+                'ok' => false,
+                'payment_status' => 'processing',
+                'stage' => 'reconcile',
+                'message' => 'Estamos verificando el intento anterior. No vuelvas a cobrar todavía.',
+            ], 502);
+        }
     }
 
     /** Marca el pago, crea la cuenta si era invitado y devuelve datos de sesión. */
