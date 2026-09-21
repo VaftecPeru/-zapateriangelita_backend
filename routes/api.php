@@ -233,9 +233,9 @@ Route::middleware('auth:sanctum')->group(function () {
         // Usuarios
         Route::get('/users', [UserController::class, 'index']);
         Route::get('/users/{id}', [UserController::class, 'show']);
-        Route::post('/users/{user}/reset-password', [UserController::class, 'resetPassword']);
-        Route::put('/users/{user}/role', [UserController::class, 'updateRole']);
-        Route::delete('/users/{user}', [UserController::class, 'destroy']);
+        Route::post('/users/{id}/reset-password', [UserController::class, 'resetPassword']);
+        Route::put('/users/{id}/role', [UserController::class, 'updateRole']);
+        Route::delete('/users/{id}', [UserController::class, 'destroy']);
 
         // Tallas
         Route::get('/product-sizes', [ProductSizeController::class, 'index']);
