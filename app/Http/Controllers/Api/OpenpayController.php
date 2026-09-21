@@ -24,6 +24,8 @@ class OpenpayController extends Controller
             'merchant_id' => config('openpay.merchant_id'),
             'public_key' => config('openpay.public_key'),
             'sandbox' => config('openpay.sandbox'),
+            'environment' => config('openpay.environment'),
+            'charge_resource' => '/v1/{merchant_id}/charges',
         ]);
     }
 
