@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\CheckoutController;
 use App\Models\Order;
 use App\Services\CheckoutStockService;
 use App\Services\DeferredOrderNotificationService;
@@ -638,26 +639,17 @@ class OpenpayController extends Controller
                 in_array($type, ['charge.succeeded', 'charge.completed'], true) &&
                 $confirmedStatus === 'completed'
             ) {
-                DB::transaction(function () use ($order, $confirmedId) {
-                    $lockedOrder = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+                $order->payment_transaction_id = $confirmedId;
+                $order->save();
 
-                    if ($lockedOrder->payment_status === 'paid') {
-                        return;
-                    }
-
-                    $lockedOrder->payment_method = 'openpay';
-                    $lockedOrder->payment_transaction_id = $confirmedId;
-                    $lockedOrder->payment_status = 'paid';
-                    $lockedOrder->payment_error = null;
-                    $lockedOrder->paid_at = $lockedOrder->paid_at ?: now();
-                    $lockedOrder->status = 'sin_preparar';
-                    $lockedOrder->save();
-                });
-
-                $paidOrder = Order::with('items', 'user')->find($order->id);
-                if ($paidOrder) {
-                    app(DeferredOrderNotificationService::class)->schedule($paidOrder, $paidOrder->user);
-                }
+                // Completa también creación/vinculación del cliente y notificaciones.
+                // Así el flujo no depende de que el navegador vuelva correctamente
+                // del 3D Secure para finalizar la compra.
+                app(CheckoutController::class)->completePaidOrder(
+                    $order,
+                    empty($order->user_id),
+                    true,
+                );
 
                 return response()->json(['received' => true, 'type' => $type, 'reconciled' => true], 200);
             }

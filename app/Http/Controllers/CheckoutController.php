@@ -1246,7 +1246,7 @@ class CheckoutController extends Controller
     }
 
     /** Marca el pago, crea la cuenta si era invitado y devuelve datos de sesión. */
-    private function completePaidOrder(
+    public function completePaidOrder(
         Order $order,
         bool $guestCheckout,
         bool $scheduleNotifications = true,
