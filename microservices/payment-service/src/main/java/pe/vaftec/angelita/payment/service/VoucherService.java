@@ -3,6 +3,7 @@ package pe.vaftec.angelita.payment.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.lowagie.text.*;
 import com.lowagie.text.pdf.PdfWriter;
+import com.lowagie.text.pdf.PdfPTable;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
@@ -11,6 +12,7 @@ import java.math.BigDecimal;
 @Service
 public class VoucherService {
     public byte[] generate(JsonNode payload) {
+        try {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         Document document = new Document(PageSize.A4, 42, 42, 42, 42);
         PdfWriter.getInstance(document, out);
@@ -57,6 +59,9 @@ public class VoucherService {
 
         document.close();
         return out.toByteArray();
+        } catch (Exception e) {
+            throw new IllegalStateException("Could not generate voucher PDF", e);
+        }
     }
 
     private String text(JsonNode node, String field) {
