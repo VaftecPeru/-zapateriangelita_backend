@@ -268,6 +268,7 @@ public class PaymentOrchestrator {
         payload.put("transaction_id", attempt.getTransactionId());
         payload.put("amount", attempt.getAmount());
         payload.put("currency", attempt.getCurrency());
+        payload.put("guest_checkout", attempt.isGuestCheckout());
         return payload;
     }
 
