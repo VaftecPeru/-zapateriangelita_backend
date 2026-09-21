@@ -1,0 +1,50 @@
+server:
+  port: ${SERVER_PORT:8081}
+  shutdown: graceful
+
+spring:
+  datasource:
+    url: ${PAYMENT_DB_URL:jdbc:mysql://127.0.0.1:3306/angelita_payment?useSSL=true&serverTimezone=UTC}
+    username: ${PAYMENT_DB_USERNAME:}
+    password: ${PAYMENT_DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: ${PAYMENT_DB_POOL_SIZE:10}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+payment:
+  shared-secret: ${PAYMENT_SERVICE_SHARED_SECRET:}
+  notifications:
+    enabled: ${PAYMENT_NOTIFICATIONS_ENABLED:true}
+  mail:
+    from: ${MAIL_FROM_ADDRESS:no-reply@zapateriangelita.com}
+
+laravel:
+  base-url: ${LARAVEL_API_URL:https://api.zapateriangelita.com}
+
+openpay:
+  base-url: ${OPENPAY_BASE_URL:https://sandbox-api.openpay.mx}
+  merchant-id: ${OPENPAY_MERCHANT_ID:}
+  private-key: ${OPENPAY_PRIVATE_KEY:}
