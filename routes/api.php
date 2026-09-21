@@ -101,6 +101,15 @@ Route::middleware('throttle:checkout')->group(function () {
     Route::get('/checkout/payments/openpay/verify', [CheckoutController::class, 'verify']);
 });
 
+// Callbacks internos del microservicio Spring Boot. Nunca deben exponerse sin
+// firma HMAC; el microservicio no escribe directamente en la base Laravel.
+Route::prefix('/internal/payment')
+    ->middleware('payment.service')
+    ->group(function () {
+        Route::post('/orders/{order}/complete', [CheckoutController::class, 'completeFromPaymentService']);
+        Route::post('/orders/{order}/fail', [CheckoutController::class, 'failFromPaymentService']);
+    });
+
 // Rutas para usuarios autenticados
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', function (Request $request) {
