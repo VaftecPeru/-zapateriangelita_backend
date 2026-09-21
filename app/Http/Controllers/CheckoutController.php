@@ -13,6 +13,7 @@ use App\Services\AccessTokenService;
 use App\Services\CheckoutStockService;
 use App\Services\DeliveryCostService;
 use App\Services\DeferredOrderNotificationService;
+use App\Services\PaymentMicroserviceClient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -218,6 +219,16 @@ class CheckoutController extends Controller
         /** @var Order $order */
         $order = $context['order'];
         $guestCheckout = $context['guest'];
+
+        if (app(PaymentMicroserviceClient::class)->enabled()) {
+            return $this->chargeViaPaymentService(
+                $request,
+                $order,
+                $guestCheckout,
+                $validated['token_id'],
+                $validated['device_session_id'],
+            );
+        }
 
         if ($order->payment_status === 'paid') {
             return response()->json([
@@ -564,6 +575,10 @@ class CheckoutController extends Controller
             ], 409);
         }
 
+        if (app(PaymentMicroserviceClient::class)->enabled()) {
+            return $this->verifyViaPaymentService($order, $guestCheckout, $recoveredSession);
+        }
+
         if ($order->payment_status === 'paid') {
             $account = $this->completePaidOrder($order, $guestCheckout);
             if ($recoveredSession) {
@@ -775,6 +790,247 @@ class CheckoutController extends Controller
         });
     }
 
+    /**
+     * Facade Laravel -> Spring Boot. Mantiene el contrato público actual para no
+     * modificar React durante la migración y conserva la reserva de inventario
+     * como responsabilidad del ecommerce.
+     */
+    private function chargeViaPaymentService(
+        Request $request,
+        Order $order,
+        bool $guestCheckout,
+        string $tokenId,
+        string $deviceSessionId
+    ): JsonResponse {
+        if ($order->payment_status === 'paid') {
+            return response()->json([
+                'ok' => true,
+                'payment_status' => 'paid',
+                'order_id' => $order->id,
+                'order_code' => $order->code,
+                'message' => 'Este pedido ya fue pagado.',
+            ]);
+        }
+
+        if ($order->payment_status === 'processing' && !empty($order->payment_transaction_id)) {
+            return response()->json([
+                'ok' => false,
+                'payment_status' => 'processing',
+                'transaction_id' => $order->payment_transaction_id,
+                'message' => 'El pedido tiene un pago en proceso. No vuelvas a realizarlo.',
+            ], 409);
+        }
+
+        $amount = round((float) $order->total, 2);
+        if (!is_finite($amount) || $amount <= 0) {
+            return response()->json(['message' => 'El total del pedido no es válido.'], 422);
+        }
+
+        if ($order->payment_status === 'processing' && empty($order->payment_transaction_id)) {
+            $reference = (string) $order->payment_reference;
+            if ($reference === '') {
+                return response()->json([
+                    'ok' => false,
+                    'payment_status' => 'processing',
+                    'message' => 'El intento anterior requiere conciliación manual.',
+                ], 409);
+            }
+        } else {
+            $reference = $order->code . '-' . strtoupper(Str::random(8));
+            $reservationError = $this->reserveStockForPayment($order, $reference);
+            if ($reservationError) {
+                return response()->json([
+                    'message' => $reservationError,
+                    'error_code' => 'STOCK_UNAVAILABLE',
+                ], 422);
+            }
+            $order->refresh();
+        }
+
+        $redirectBase = (string) config('openpay.redirect_url');
+        $redirectParts = explode('#', $redirectBase, 2);
+        $redirectBase = $redirectParts[0];
+        $fragment = isset($redirectParts[1]) ? '#' . $redirectParts[1] : '';
+        $separator = str_contains($redirectBase, '?') ? '&' : '?';
+        $redirectUrl = $redirectBase . $separator . http_build_query([
+            'openpay_return' => 1,
+            'order_id' => $order->id,
+        ]) . $fragment;
+
+        try {
+            $result = app(PaymentMicroserviceClient::class)->charge([
+                'order_id' => $order->id,
+                'order_code' => $order->code,
+                'reference' => $reference,
+                'amount' => $amount,
+                'currency' => strtoupper((string) config('openpay.currency', 'MXN')),
+                'token_id' => $tokenId,
+                'device_session_id' => $deviceSessionId,
+                'redirect_url' => $redirectUrl,
+                'guest_checkout' => $guestCheckout,
+                'customer' => [
+                    'name' => $order->customer_name,
+                    'email' => $order->customer_email,
+                    'phone' => $order->shipping_phone,
+                ],
+            ]);
+
+            $data = $result['data'];
+            if (!empty($data['transaction_id'])) {
+                $order->payment_transaction_id = (string) $data['transaction_id'];
+                $order->payment_reference = $reference;
+                $order->save();
+            }
+
+            if (($data['payment_status'] ?? null) === 'failed') {
+                $this->releaseStockReservation(
+                    $order,
+                    (string) ($data['message'] ?? 'El pago no fue aprobado.')
+                );
+            }
+
+            return response()->json($data, (int) $result['status']);
+        } catch (\Throwable $e) {
+            Log::error('PAYMENT_SERVICE_CHARGE_FAILED', [
+                'order_id' => $order->id,
+                'exception' => get_class($e),
+                'line' => $e->getLine(),
+            ]);
+
+            return response()->json([
+                'ok' => false,
+                'payment_status' => 'processing',
+                'stage' => 'payment_service',
+                'message' => 'No fue posible confirmar el resultado. No repitas el cobro hasta verificarlo.',
+            ], 502);
+        }
+    }
+
+    private function verifyViaPaymentService(
+        Order $order,
+        bool $guestCheckout,
+        bool $recoveredSession
+    ): JsonResponse {
+        try {
+            $result = app(PaymentMicroserviceClient::class)->verify([
+                'order_id' => $order->id,
+                'order_code' => $order->code,
+                'reference' => (string) $order->payment_reference,
+                'transaction_id' => (string) $order->payment_transaction_id,
+                'amount' => round((float) $order->total, 2),
+                'currency' => strtoupper((string) config('openpay.currency', 'MXN')),
+                'guest_checkout' => $guestCheckout,
+                'session_recovered' => $recoveredSession,
+            ]);
+
+            $data = $result['data'];
+            if (($data['payment_status'] ?? null) === 'failed') {
+                $this->releaseStockReservation(
+                    $order,
+                    (string) ($data['message'] ?? 'El pago no fue aprobado.')
+                );
+            }
+
+            if ($recoveredSession && ($data['payment_status'] ?? null) === 'paid') {
+                $data = $this->sanitizeRecoveredSessionResponse($data);
+            }
+
+            return response()->json($data, (int) $result['status']);
+        } catch (\Throwable $e) {
+            Log::error('PAYMENT_SERVICE_VERIFY_FAILED', [
+                'order_id' => $order->id,
+                'exception' => get_class($e),
+                'line' => $e->getLine(),
+            ]);
+
+            return response()->json([
+                'ok' => false,
+                'payment_status' => 'processing',
+                'message' => 'No fue posible verificar el pago en el servicio transaccional.',
+            ], 502);
+        }
+    }
+
+    /**
+     * Callback HMAC del microservicio cuando Openpay confirma el cargo.
+     * Laravel conserva ownership de users/orders y devuelve solo los datos que
+     * Spring necesita para voucher y correos transaccionales.
+     */
+    public function completeFromPaymentService(Request $request, Order $order): JsonResponse
+    {
+        $validated = $request->validate([
+            'reference' => ['required', 'string', 'max:100'],
+            'transaction_id' => ['required', 'string', 'max:100'],
+            'amount' => ['required', 'numeric', 'gt:0'],
+            'currency' => ['required', 'string', 'size:3'],
+        ]);
+
+        $expectedAmount = (int) round((float) $order->total * 100);
+        $receivedAmount = (int) round((float) $validated['amount'] * 100);
+        $expectedCurrency = strtoupper((string) config('openpay.currency', 'MXN'));
+
+        if (
+            $expectedAmount !== $receivedAmount ||
+            strtoupper($validated['currency']) !== $expectedCurrency ||
+            ($order->payment_reference && !hash_equals((string) $order->payment_reference, $validated['reference']))
+        ) {
+            return response()->json(['message' => 'Los datos del pago no coinciden con el pedido.'], 409);
+        }
+
+        $order->payment_reference = $validated['reference'];
+        $order->payment_transaction_id = $validated['transaction_id'];
+        $order->save();
+
+        $guestCheckout = empty($order->user_id);
+        $account = $this->completePaidOrder($order, $guestCheckout, false, true);
+
+        return response()->json(array_merge([
+            'ok' => true,
+            'payment_status' => 'paid',
+            'order_id' => $order->id,
+            'order_code' => $order->code,
+            'transaction_id' => $validated['transaction_id'],
+        ], $account));
+    }
+
+    public function failFromPaymentService(Request $request, Order $order): JsonResponse
+    {
+        $validated = $request->validate([
+            'reference' => ['required', 'string', 'max:100'],
+            'transaction_id' => ['nullable', 'string', 'max:100'],
+            'amount' => ['required', 'numeric', 'gt:0'],
+            'currency' => ['required', 'string', 'size:3'],
+            'message' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $expectedAmount = (int) round((float) $order->total * 100);
+        $receivedAmount = (int) round((float) $validated['amount'] * 100);
+        if (
+            $expectedAmount !== $receivedAmount ||
+            strtoupper($validated['currency']) !== strtoupper((string) config('openpay.currency', 'MXN')) ||
+            ($order->payment_reference && !hash_equals((string) $order->payment_reference, $validated['reference']))
+        ) {
+            return response()->json(['message' => 'Los datos del pago no coinciden con el pedido.'], 409);
+        }
+
+        $order->payment_reference = $validated['reference'];
+        if (!empty($validated['transaction_id'])) {
+            $order->payment_transaction_id = $validated['transaction_id'];
+        }
+        $order->save();
+
+        $this->releaseStockReservation(
+            $order,
+            (string) ($validated['message'] ?? 'Openpay confirmó que el pago no fue aprobado.')
+        );
+
+        return response()->json([
+            'ok' => true,
+            'payment_status' => 'failed',
+            'order_id' => $order->id,
+        ]);
+    }
+
     /** Devuelve stock solo cuando un pago reservado falla de forma definitiva. */
     private function releaseStockReservation(Order $order, string $reason): void
     {
@@ -982,8 +1238,13 @@ class CheckoutController extends Controller
     }
 
     /** Marca el pago, crea la cuenta si era invitado y devuelve datos de sesión. */
-    private function completePaidOrder(Order $order, bool $guestCheckout): array
-    {
+    private function completePaidOrder(
+        Order $order,
+        bool $guestCheckout,
+        bool $scheduleNotifications = true,
+        bool $exposeTemporaryPassword = false
+    ): array {
+
         $createdUser = false;
         $temporaryPassword = null;
 
@@ -1042,24 +1303,51 @@ class CheckoutController extends Controller
         /** @var Order $paidOrder */
         [$paidOrder, $user, $userWasAlreadyLinked] = $result;
 
-        app(DeferredOrderNotificationService::class)->schedule(
-            $paidOrder,
-            $user,
-            $temporaryPassword,
-            $createdUser && $user && $temporaryPassword !== null,
-        );
+        if ($scheduleNotifications) {
+            app(DeferredOrderNotificationService::class)->schedule(
+                $paidOrder,
+                $user,
+                $temporaryPassword,
+                $createdUser && $user && $temporaryPassword !== null,
+            );
+        }
 
         $response = [
             'account_created' => false,
             'requires_login' => false,
-            'purchase_email_scheduled' => true,
+            'purchase_email_scheduled' => $scheduleNotifications,
         ];
+
+        if ($exposeTemporaryPassword && $createdUser && $temporaryPassword) {
+            $response['temporary_password'] = $temporaryPassword;
+        }
+
+        if ($exposeTemporaryPassword) {
+            $response['notification_payload'] = [
+                'customer_name' => $paidOrder->customer_name,
+                'customer_email' => $paidOrder->customer_email,
+                'customer_phone' => $paidOrder->shipping_phone,
+                'order_code' => $paidOrder->code,
+                'subtotal' => (float) $paidOrder->subtotal,
+                'shipping_cost' => (float) $paidOrder->shipping_cost,
+                'total' => (float) $paidOrder->total,
+                'currency' => strtoupper((string) config('openpay.currency', 'MXN')),
+                'transaction_id' => $paidOrder->payment_transaction_id,
+                'items' => $paidOrder->items->map(fn ($item) => [
+                    'name' => $item->product_name,
+                    'size' => $item->size,
+                    'color' => $item->color,
+                    'quantity' => (int) $item->quantity,
+                    'unit_price' => (float) $item->unit_price,
+                ])->values()->all(),
+            ];
+        }
 
         if ($createdUser && $user && $temporaryPassword) {
             $response['account_created'] = true;
             $response['auth_token'] = app(AccessTokenService::class)->issue($user, 'checkout_auto_login');
             $response['user'] = $user;
-            $response['credentials_email_scheduled'] = true;
+            $response['credentials_email_scheduled'] = $scheduleNotifications;
             return $response;
         }
 
