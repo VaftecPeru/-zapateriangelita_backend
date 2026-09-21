@@ -95,6 +95,6 @@ public class NotificationService {
             .replace("&", "&amp;")
             .replace("<", "&lt;")
             .replace(">", "&gt;")
-            .replace("\\"", "&quot;");
+            .replace(String.valueOf((char) 34), "&quot;");
     }
 }
