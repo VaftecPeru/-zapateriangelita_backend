@@ -8,7 +8,9 @@ use App\Models\Product;
 use App\Models\User;
 use App\Services\DeliveryCostService;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -74,6 +76,12 @@ class CheckoutDeliveryCostTest extends TestCase
             $table->decimal('total', 10, 2)->default(0);
             $table->string('payment_method')->nullable();
             $table->string('payment_status')->nullable();
+            $table->string('payment_reference')->nullable();
+            $table->string('payment_transaction_id')->nullable();
+            $table->text('payment_error')->nullable();
+            $table->timestamp('paid_at')->nullable();
+            $table->timestamp('stock_reserved_at')->nullable();
+            $table->timestamp('stock_released_at')->nullable();
             $table->string('shipping_address')->nullable();
             $table->string('shipping_city')->nullable();
             $table->string('shipping_country')->nullable();
@@ -163,6 +171,101 @@ class CheckoutDeliveryCostTest extends TestCase
             'shipping_cost' => 85.50,
             'total' => 585.50,
         ]);
+    }
+
+    public function test_checkout_charge_sends_post_to_openpay_charges_resource(): void
+    {
+        config([
+            'openpay.currency' => 'MXN',
+            'openpay.merchant_id' => 'merchant_test',
+            'openpay.public_key' => 'pk_test',
+            'openpay.private_key' => 'sk_test',
+            'openpay.sandbox' => true,
+            'openpay.environment' => 'sandbox',
+            'openpay.base_url' => 'https://sandbox-api.openpay.mx',
+            'openpay.redirect_url' => 'https://example.test/checkout',
+        ]);
+
+        $product = Product::create([
+            'product_code' => 'ZA-OPENPAY-001',
+            'name' => 'Zapato Openpay',
+            'price' => 108,
+            'stock' => 3,
+        ]);
+
+        $order = Order::create([
+            'code' => 'ZA-OPENPAY-TEST-001',
+            'status' => 'sin_preparar',
+            'subtotal' => 108,
+            'discount' => 0,
+            'shipping_cost' => 40,
+            'total' => 148,
+            'payment_method' => 'openpay',
+            'payment_status' => null,
+            'shipping_address' => 'Calle prueba 123',
+            'shipping_city' => 'La Barca',
+            'shipping_country' => 'México',
+            'shipping_state' => 'Jalisco',
+            'shipping_municipality' => 'La Barca',
+            'shipping_postal_code' => '47910',
+            'shipping_phone' => '+52123123123',
+            'customer_name' => 'Carlos Prueba',
+            'customer_email' => 'prueba32@gmail.com',
+        ]);
+
+        $order->items()->create([
+            'product_id' => $product->id,
+            'product_name' => $product->name,
+            'size' => null,
+            'color' => null,
+            'quantity' => 1,
+            'unit_price' => 108,
+        ]);
+
+        $checkoutToken = Crypt::encryptString(json_encode([
+            'flow' => 'angelita_checkout_v2',
+            'order_id' => $order->id,
+            'email' => $order->customer_email,
+            'guest' => true,
+            'exp' => now()->addHour()->timestamp,
+        ]));
+
+        Http::fake(function ($request) {
+            $payload = $request->data();
+
+            return Http::response([
+                'id' => 'tr_charge_test_001',
+                'order_id' => $payload['order_id'],
+                'amount' => $payload['amount'],
+                'currency' => 'MXN',
+                'status' => 'in_progress',
+                'payment_method' => [
+                    'type' => 'redirect',
+                    'url' => 'https://sandbox-api.openpay.mx/v1/3dsecure/test',
+                ],
+            ], 200);
+        });
+
+        $this->postJson('/api/checkout/payments/openpay/charge', [
+            'order_id' => $order->id,
+            'checkout_token' => $checkoutToken,
+            'token_id' => 'tok_test_001',
+            'device_session_id' => 'device_session_test_001',
+        ])->assertStatus(202)
+          ->assertJsonPath('payment_status', 'processing')
+          ->assertJsonPath('requires_redirect', true);
+
+        Http::assertSent(function ($request) {
+            $payload = $request->data();
+
+            return $request->method() === 'POST'
+                && $request->url() === 'https://sandbox-api.openpay.mx/v1/merchant_test/charges'
+                && ($payload['method'] ?? null) === 'card'
+                && ($payload['source_id'] ?? null) === 'tok_test_001'
+                && ($payload['device_session_id'] ?? null) === 'device_session_test_001'
+                && ($payload['use_3d_secure'] ?? null) === true
+                && (float) ($payload['amount'] ?? 0) === 148.0;
+        });
     }
 
     public function test_inactive_delivery_service_cost_is_zero(): void
