@@ -300,15 +300,44 @@ class CheckoutController extends Controller
             ],
         ];
 
+        $chargeUrl = "{$baseUrl}/v1/{$merchantId}/charges";
+        $merchantFingerprint = strlen($merchantId) > 8
+            ? substr($merchantId, 0, 4) . '…' . substr($merchantId, -4)
+            : $merchantId;
+
         try {
+            Log::channel('openpay')->info('OPENPAY_CHARGE_REQUEST', [
+                'order_id' => $order->id,
+                'order_code' => $order->code,
+                'reference' => $openpayReference,
+                'environment' => (string) config('openpay.environment', config('openpay.sandbox') ? 'sandbox' : 'production'),
+                'merchant' => $merchantFingerprint,
+                'resource' => '/v1/{merchant_id}/charges',
+                'amount' => $amount,
+                'currency' => strtoupper((string) config('openpay.currency', 'MXN')),
+                'has_source_id' => $validated['token_id'] !== '',
+                'has_device_session_id' => $validated['device_session_id'] !== '',
+                'use_3d_secure' => true,
+            ]);
+
             $response = Http::connectTimeout(5)->timeout(15)->withoutRedirecting()
                 ->withBasicAuth($privateKey, '')
                 ->withHeaders(['X-Forwarded-For' => $clientIp])
                 ->acceptJson()
                 ->asJson()
-                ->post("{$baseUrl}/v1/{$merchantId}/charges", $payload);
+                ->post($chargeUrl, $payload);
 
             $data = $response->json();
+
+            Log::channel('openpay')->info('OPENPAY_CHARGE_RESPONSE', [
+                'order_id' => $order->id,
+                'reference' => $openpayReference,
+                'http_status' => $response->status(),
+                'request_id' => is_array($data) ? ($data['request_id'] ?? null) : null,
+                'charge_id' => is_array($data) ? ($data['id'] ?? null) : null,
+                'openpay_status' => is_array($data) ? ($data['status'] ?? null) : null,
+                'error_code' => is_array($data) ? ($data['error_code'] ?? null) : null,
+            ]);
 
             if (!is_array($data)) {
                 return response()->json([
@@ -439,6 +468,17 @@ class CheckoutController extends Controller
                 'message' => 'El estado del pago requiere revisión. No realices otro intento.',
             ], 202);
         } catch (\Throwable $e) {
+            Log::channel('openpay')->error('OPENPAY_CHARGE_TRANSPORT_FAILED', [
+                'order_id' => $order->id,
+                'reference' => $openpayReference,
+                'environment' => (string) config('openpay.environment', config('openpay.sandbox') ? 'sandbox' : 'production'),
+                'merchant' => $merchantFingerprint,
+                'resource' => '/v1/{merchant_id}/charges',
+                'exception' => get_class($e),
+                'message' => $e->getMessage(),
+                'line' => $e->getLine(),
+            ]);
+
             Log::error('CHECKOUT_OPENPAY_CHARGE_FAILED', [
                 'order_id' => $order->id,
                 'exception' => get_class($e),
