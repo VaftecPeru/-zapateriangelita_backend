@@ -21,6 +21,28 @@ class RouteServiceProvider extends ServiceProvider
             return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
         });
 
+        // El checkout usa límites independientes por endpoint. De esta forma
+        // los reintentos de verificación 3D Secure no consumen el mismo contador
+        // que crear el pedido o iniciar el cobro.
+        RateLimiter::for('checkout', function (Request $request) {
+            $path = $request->path();
+            $identity = (string) ($request->user()?->id ?: $request->ip());
+
+            $attempts = str_ends_with($path, 'checkout/payments/openpay/verify')
+                ? 120
+                : 30;
+
+            return Limit::perMinute($attempts)
+                ->by('checkout|' . $path . '|' . $identity)
+                ->response(function (Request $request, array $headers) {
+                    return response()->json([
+                        'message' => 'Has realizado varios intentos seguidos. Espera unos segundos y vuelve a intentar.',
+                        'error_code' => 'CHECKOUT_RATE_LIMITED',
+                        'retry_after' => (int) ($headers['Retry-After'] ?? 60),
+                    ], 429, $headers);
+                });
+        });
+
         $this->routes(function () {
             Route::middleware('api')
                 ->prefix('api')
