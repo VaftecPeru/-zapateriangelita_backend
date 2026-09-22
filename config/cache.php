@@ -2,9 +2,23 @@
 
 use Illuminate\Support\Str;
 
+$cpanelFileCachePath = storage_path('framework/cache/data');
+$configuredCacheStore = env('CACHE_STORE', env('CACHE_DRIVER', 'file'));
+
+// En hosting compartido un deploy ZIP puede dejar storage/framework sin permisos
+// o sin la carpeta data. El throttle de Laravel usa el cache y, si el store file
+// no puede escribir, todas las rutas públicas pueden responder 500. En ese caso
+// degradamos temporalmente a memoria para mantener la API disponible.
+if (
+    $configuredCacheStore === 'file'
+    && (!is_dir($cpanelFileCachePath) || !is_writable($cpanelFileCachePath))
+) {
+    $configuredCacheStore = 'array';
+}
+
 return [
 
-    'default' => env('CACHE_DRIVER', 'file'),
+    'default' => $configuredCacheStore,
 
     'stores' => [
 
@@ -26,8 +40,8 @@ return [
 
         'file' => [
             'driver' => 'file',
-            'path' => storage_path('framework/cache/data'),
-            'lock_path' => storage_path('framework/cache/data'),
+            'path' => $cpanelFileCachePath,
+            'lock_path' => $cpanelFileCachePath,
         ],
 
         'memcached' => [
@@ -38,7 +52,6 @@ return [
                 env('MEMCACHED_PASSWORD'),
             ],
             'options' => [
-                
             ],
             'servers' => [
                 [
@@ -69,7 +82,6 @@ return [
         ],
 
     ],
-
 
     'prefix' => env('CACHE_PREFIX', Str::slug(env('APP_NAME', 'laravel'), '_').'_cache_'),
 
