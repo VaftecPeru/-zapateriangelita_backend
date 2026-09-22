@@ -5,8 +5,16 @@ use Monolog\Handler\StreamHandler;
 use Monolog\Handler\SyslogUdpHandler;
 use Monolog\Processor\PsrLogMessageProcessor;
 
-return [
+$logDirectory = storage_path('logs');
+$canWriteLaravelLogs = is_dir($logDirectory) && is_writable($logDirectory);
 
+// Si storage/logs no es escribible en cPanel, usar el error log de PHP/Apache
+// evita que el propio sistema de logging provoque otro 500 y nos deja una traza
+// visible desde cPanel > Metrics > Errors.
+$stackChannels = $canWriteLaravelLogs ? ['single'] : ['errorlog'];
+$openpayDriver = $canWriteLaravelLogs ? 'single' : 'errorlog';
+
+return [
 
     'default' => env('LOG_CHANNEL', 'stack'),
 
@@ -15,22 +23,27 @@ return [
         'trace' => false,
     ],
 
-
     'channels' => [
         'stack' => [
             'driver' => 'stack',
-            'channels' => ['single'],
+            'channels' => $stackChannels,
             'ignore_exceptions' => false,
         ],
 
-        'openpay' => [
-            'driver' => 'single',
-            'path' => storage_path('logs/openpay.log'),
-            'level' => env('OPENPAY_LOG_LEVEL', 'info'),
-            'replace_placeholders' => true,
-            'permission' => 0660,
-            'locking' => true,
-        ],
+        'openpay' => $openpayDriver === 'single'
+            ? [
+                'driver' => 'single',
+                'path' => storage_path('logs/openpay.log'),
+                'level' => env('OPENPAY_LOG_LEVEL', 'info'),
+                'replace_placeholders' => true,
+                'permission' => 0660,
+                'locking' => true,
+            ]
+            : [
+                'driver' => 'errorlog',
+                'level' => env('OPENPAY_LOG_LEVEL', 'info'),
+                'replace_placeholders' => true,
+            ],
 
         'single' => [
             'driver' => 'single',
