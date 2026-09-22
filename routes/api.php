@@ -24,6 +24,10 @@ use App\Http\Controllers\ProductColorController;
 use App\Http\Controllers\Api\OpenpayController;
 use App\Http\Controllers\NewsletterController;
 use App\Http\Controllers\InteractionController;
+use App\Http\Controllers\HealthController;
+
+// Diagnóstico mínimo para cPanel. No usa throttle ni expone secretos.
+Route::get('/health', HealthController::class);
 
 // Autenticación
 Route::middleware('throttle:60,1')
