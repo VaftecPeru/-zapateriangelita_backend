@@ -17,6 +17,16 @@ jobs:
       - run: composer update --lock --no-interaction --no-progress
       - run: composer validate --strict --no-check-publish
       - run: composer install --prefer-dist --no-interaction --no-progress
+      - name: Build production vendor archive
+        run: |
+          rm -rf vendor
+          composer install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader
+          zip -qr vendor-production.zip vendor
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vendor-production-laravel12
+          path: vendor-production.zip
+          retention-days: 1
       - run: composer audit --locked
       - uses: actions/upload-artifact@v4
         with:
