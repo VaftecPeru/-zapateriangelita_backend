@@ -89,7 +89,7 @@ Route::middleware('throttle:100,1')->group(function () {
 Route::get('/openpay/config', [
     OpenpayController::class,
     'config',
-]);
+])->middleware('throttle:30,1');
 
 // Openpay: recepción de notificaciones del proveedor.
 Route::post('/openpay/webhook', [
