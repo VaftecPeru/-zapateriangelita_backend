@@ -36,6 +36,7 @@ class AddressController extends Controller
             'address' => 'nullable|string',
             'city' => 'required|string|max:100',
             'postal_code' => 'required|string|max:20',
+            'colony' => 'nullable|string|max:120',
             'reference' => 'nullable|string',
             'is_default' => 'nullable|boolean',
         ]);
@@ -91,6 +92,7 @@ class AddressController extends Controller
             'address' => 'nullable|string',
             'city' => 'sometimes|required|string|max:100',
             'postal_code' => 'sometimes|required|string|max:20',
+            'colony' => 'nullable|string|max:120',
             'reference' => 'nullable|string',
             'is_default' => 'nullable|boolean',
         ]);
@@ -135,6 +137,7 @@ class AddressController extends Controller
             'address',
             'city',
             'postal_code',
+            'colony',
             'reference',
         ];
 

@@ -50,6 +50,7 @@ class CheckoutController extends Controller
             'shipping_state' => 'required|string|max:100',
             'shipping_municipality' => 'required|string|max:100',
             'shipping_postal_code' => 'required|string|max:20',
+            'shipping_colony' => 'nullable|string|max:120',
             'shipping_phone' => ['required', 'regex:/^\\+?[0-9]{7,20}$/'],
             'payment_method' => 'nullable|string|max:50',
             'notes' => 'nullable|string|max:2000',
@@ -152,6 +153,7 @@ class CheckoutController extends Controller
                     'shipping_state' => trim($validated['shipping_state']),
                     'shipping_municipality' => trim($validated['shipping_municipality']),
                     'shipping_postal_code' => trim($validated['shipping_postal_code']),
+                    'shipping_colony' => isset($validated['shipping_colony']) ? trim($validated['shipping_colony']) : null,
                     'shipping_phone' => trim($validated['shipping_phone']),
                     'customer_name' => trim($validated['customer_name']),
                     'customer_email' => $email,
@@ -1300,6 +1302,7 @@ class CheckoutController extends Controller
                     'municipality' => $lockedOrder->shipping_municipality,
                     'city' => $lockedOrder->shipping_city,
                     'postal_code' => $lockedOrder->shipping_postal_code,
+                    'colony' => $lockedOrder->shipping_colony,
                     'address' => $lockedOrder->shipping_address,
                     'is_default' => true,
                 ]);

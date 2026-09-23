@@ -99,6 +99,7 @@ class CustomerSessionFlowTest extends TestCase
             $table->string('shipping_state')->nullable();
             $table->string('shipping_municipality')->nullable();
             $table->string('shipping_postal_code')->nullable();
+            $table->string('shipping_colony')->nullable();
             $table->string('shipping_phone')->nullable();
             $table->string('customer_name')->nullable();
             $table->string('customer_email')->nullable();
@@ -120,7 +121,7 @@ class CustomerSessionFlowTest extends TestCase
         Schema::create('addresses', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('user_id');
-            foreach (['full_name', 'phone', 'country', 'state', 'municipality', 'city', 'postal_code', 'address'] as $column) {
+            foreach (['full_name', 'phone', 'country', 'state', 'municipality', 'city', 'postal_code', 'colony', 'address'] as $column) {
                 $table->string($column)->nullable();
             }
             $table->boolean('is_default')->default(false);
@@ -296,6 +297,7 @@ class CustomerSessionFlowTest extends TestCase
             'shipping_state' => 'Ciudad de México',
             'shipping_municipality' => 'Cuauhtémoc',
             'shipping_postal_code' => '06000',
+            'shipping_colony' => 'Centro',
             'shipping_phone' => '+525512345678',
             'customer_name' => 'Cliente Angelita',
             'customer_email' => $user?->email ?? 'comprador@example.com',

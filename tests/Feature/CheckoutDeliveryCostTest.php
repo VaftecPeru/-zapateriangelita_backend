@@ -88,6 +88,7 @@ class CheckoutDeliveryCostTest extends TestCase
             $table->string('shipping_state')->nullable();
             $table->string('shipping_municipality')->nullable();
             $table->string('shipping_postal_code')->nullable();
+            $table->string('shipping_colony')->nullable();
             $table->string('shipping_phone')->nullable();
             $table->string('customer_name')->nullable();
             $table->string('customer_email')->nullable();
@@ -158,6 +159,7 @@ class CheckoutDeliveryCostTest extends TestCase
             'shipping_state' => 'Ciudad de México',
             'shipping_municipality' => 'Cuauhtémoc',
             'shipping_postal_code' => '06000',
+            'shipping_colony' => 'Centro',
             'shipping_phone' => '+525512345678',
             'payment_method' => 'openpay',
         ]);
@@ -169,6 +171,7 @@ class CheckoutDeliveryCostTest extends TestCase
 
         $this->assertDatabaseHas('orders', [
             'shipping_cost' => 85.50,
+            'shipping_colony' => 'Centro',
             'total' => 585.50,
         ]);
     }
@@ -208,6 +211,7 @@ class CheckoutDeliveryCostTest extends TestCase
             'shipping_state' => 'Jalisco',
             'shipping_municipality' => 'La Barca',
             'shipping_postal_code' => '47910',
+            'shipping_colony' => 'Centro',
             'shipping_phone' => '+52123123123',
             'customer_name' => 'Carlos Prueba',
             'customer_email' => 'prueba32@gmail.com',

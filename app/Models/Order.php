@@ -40,6 +40,7 @@ class Order extends Model
         'shipping_state',
         'shipping_municipality',
         'shipping_postal_code',
+        'shipping_colony',
         'shipping_phone',
         'customer_name',
         'customer_email',
