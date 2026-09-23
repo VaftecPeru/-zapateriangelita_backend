@@ -21,6 +21,7 @@ class Address extends Model
         'address',
         'city',
         'postal_code',
+        'colony',
         'district',
         'reference',
         'is_default',
