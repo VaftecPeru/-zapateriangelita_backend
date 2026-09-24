@@ -285,6 +285,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Gestión de pedidos
         Route::get('/orders', [OrderController::class, 'index']);
+        Route::post('/orders/reconcile-payments', [OrderController::class, 'reconcilePayments']);
         Route::get('/orders/{order}', [OrderController::class, 'show']);
         Route::put('/orders/{order}/status', [
             OrderController::class,
