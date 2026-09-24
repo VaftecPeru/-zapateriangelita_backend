@@ -362,6 +362,31 @@ class TransactionalEmailNotificationTest extends TestCase
         );
     }
 
+    public function test_admin_mail_health_reports_configuration_without_exposing_password(): void
+    {
+        $admin = $this->user('mail-health-admin@example.com', 'admin');
+        Sanctum::actingAs($admin);
+
+        config([
+            'mail.default' => 'smtp',
+            'mail.from.address' => 'ventas@zapateriangelita.com',
+            'mail.mailers.smtp.host' => '',
+            'mail.mailers.smtp.username' => '',
+            'mail.mailers.smtp.password' => 'secret-do-not-expose',
+            'mail.mailers.smtp.port' => 587,
+            'mail.mailers.smtp.encryption' => 'tls',
+        ]);
+
+        $response = $this->getJson('/api/mail/health')
+            ->assertOk()
+            ->assertJsonPath('configured', false)
+            ->assertJsonPath('smtp.password_configured', true);
+
+        $payload = $response->json();
+        $this->assertArrayNotHasKey('password', $payload['smtp']);
+        $this->assertStringNotContainsString('secret-do-not-expose', json_encode($payload));
+    }
+
     public function test_transactional_email_views_render_with_branding(): void
     {
         $user = $this->user('render@example.com');
