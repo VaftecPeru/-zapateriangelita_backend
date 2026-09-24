@@ -132,6 +132,8 @@ class CpanelCheckoutRecoveryTest extends TestCase
         $service = app(CpanelOrderNotificationService::class);
         $service->queue($order, 'TempPass123!', true);
         $this->assertNotNull($order->fresh()->credential_email_ciphertext);
+        $this->assertTrue($order->fresh()->credential_email_pending);
+        $this->assertArrayNotHasKey('credential_email_ciphertext', $order->fresh()->toArray());
 
         $this->assertTrue($service->processById((int) $order->id));
 
