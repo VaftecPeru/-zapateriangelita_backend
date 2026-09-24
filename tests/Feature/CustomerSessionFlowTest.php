@@ -210,8 +210,11 @@ class CustomerSessionFlowTest extends TestCase
         $credential = $this->googleCredential();
         $response = $this->postJson('/api/auth/google/login', compact('credential'))
             ->assertOk()->assertJsonPath('account_created', true)
+            ->assertJsonPath('welcome_email_scheduled', true)
             ->assertJsonPath('user.role', 'user');
-        Mail::assertNothingSent();
+        Mail::assertSent(WelcomeUserMail::class, fn ($mail) =>
+            $mail->hasTo('customer@gmail.com') && $mail->registrationMethod === 'google'
+        );
         $this->withToken($response->json('token'))->getJson('/api/user')
             ->assertOk()->assertJsonPath('email', 'customer@gmail.com');
         $this->postJson('/api/auth/google/login', compact('credential'))
