@@ -47,6 +47,14 @@ class Order extends Model
         'notes',
     ];
 
+    protected $hidden = [
+        'credential_email_ciphertext',
+    ];
+
+    protected $appends = [
+        'credential_email_pending',
+    ];
+
     protected $casts = [
         'subtotal' => 'decimal:2',
         'discount' => 'decimal:2',
@@ -60,6 +68,12 @@ class Order extends Model
         'stock_reserved_at' => 'datetime',
         'stock_released_at' => 'datetime',
     ];
+
+    public function getCredentialEmailPendingAttribute(): bool
+    {
+        return !empty($this->attributes['credential_email_ciphertext'] ?? null)
+            && empty($this->attributes['credential_email_sent_at'] ?? null);
+    }
 
     /**
      * Mantiene compatibilidad con estados históricos en inglés mientras
