@@ -7,6 +7,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\LeadController;
 use App\Http\Controllers\MediaController;
+use App\Http\Controllers\MailHealthController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\AdditionalServiceController;
@@ -279,12 +280,19 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/reviews/{review}', [ReviewController::class, 'update']);
         Route::delete('/reviews/{review}', [ReviewController::class, 'destroy']);
 
+        // Salud de correo transaccional (sin exponer secretos)
+        Route::get('/mail/health', [MailHealthController::class, 'show']);
+
         // Gestión de pedidos
         Route::get('/orders', [OrderController::class, 'index']);
         Route::get('/orders/{order}', [OrderController::class, 'show']);
         Route::put('/orders/{order}/status', [
             OrderController::class,
             'updateStatus',
+        ]);
+        Route::post('/orders/{order}/notifications/retry', [
+            OrderController::class,
+            'retryNotifications',
         ]);
     });
 });
