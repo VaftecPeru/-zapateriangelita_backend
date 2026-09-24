@@ -27,6 +27,11 @@ class User extends Authenticatable
         'google_sub',
         'google_email',
         'google_linked_at',
+        'welcome_email_method',
+        'welcome_email_sent_at',
+        'welcome_email_attempts',
+        'welcome_email_next_attempt_at',
+        'welcome_email_last_error',
     ];
 
     protected $hidden = [
@@ -42,6 +47,9 @@ class User extends Authenticatable
         'temporary_password_set_at' => 'datetime',
         'birthdate' => 'date',
         'google_linked_at' => 'datetime',
+        'welcome_email_sent_at' => 'datetime',
+        'welcome_email_attempts' => 'integer',
+        'welcome_email_next_attempt_at' => 'datetime',
     ];
 
     // ============================================
