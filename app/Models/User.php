@@ -38,6 +38,11 @@ class User extends Authenticatable
         'password',
         'remember_token',
         'google_sub',
+        'welcome_email_method',
+        'welcome_email_sent_at',
+        'welcome_email_attempts',
+        'welcome_email_next_attempt_at',
+        'welcome_email_last_error',
     ];
 
     protected $casts = [
