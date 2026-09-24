@@ -48,6 +48,11 @@ class TransactionalEmailNotificationTest extends TestCase
             $table->string('google_sub')->nullable();
             $table->string('google_email')->nullable();
             $table->timestamp('google_linked_at')->nullable();
+            $table->string('welcome_email_method', 20)->nullable();
+            $table->timestamp('welcome_email_sent_at')->nullable();
+            $table->unsignedSmallInteger('welcome_email_attempts')->default(0);
+            $table->timestamp('welcome_email_next_attempt_at')->nullable();
+            $table->text('welcome_email_last_error')->nullable();
             $table->rememberToken();
             $table->timestamps();
         });
@@ -189,6 +194,10 @@ class TransactionalEmailNotificationTest extends TestCase
         Mail::assertSent(WelcomeUserMail::class, fn ($mail) =>
             $mail->hasTo('maria@example.com')
         );
+
+        $registered = User::where('email', 'maria@example.com')->firstOrFail();
+        $this->assertNotNull($registered->fresh()->welcome_email_sent_at);
+        $this->assertNull($registered->fresh()->welcome_email_next_attempt_at);
     }
 
     public function test_password_reset_notification_uses_branded_mail(): void
