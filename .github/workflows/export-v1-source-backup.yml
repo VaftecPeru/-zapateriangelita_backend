@@ -1,0 +1,31 @@
+name: Export source V1 backup
+
+on:
+  push:
+    branches:
+      - 'backup/v1.0.0-20260924'
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout production main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Build source snapshot
+        run: |
+          zip -r "zapateriangelita_backend_main_v1.0.0_2026-09-24.zip" .             -x '.git/*'             -x 'node_modules/*'             -x 'vendor/*'             -x '.env'             -x 'storage/logs/*'             -x 'bootstrap/cache/*.php'
+
+      - name: Upload source snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: zapateriangelita_backend_main_v1.0.0_2026-09-24
+          path: zapateriangelita_backend_main_v1.0.0_2026-09-24.zip
+          if-no-files-found: error
+          retention-days: 90
