@@ -24,7 +24,7 @@ class PurchaseConfirmedMail extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Compra confirmada · Pedido ' . $this->order->code . ' · Zapatería Angelita',
+            subject: 'Pago confirmado · Pedido ' . $this->order->code . ' · Zapatería Angelita',
         );
     }
 
@@ -64,20 +64,41 @@ class PurchaseConfirmedMail extends Mailable
                 . '</tr>';
         }
 
+        $address = array_filter([
+            $order->shipping_address,
+            $order->shipping_colony ? 'Col. ' . $order->shipping_colony : null,
+            $order->shipping_city,
+            $order->shipping_municipality,
+            $order->shipping_state,
+            $order->shipping_postal_code ? 'C.P. ' . $order->shipping_postal_code : null,
+            $order->shipping_country,
+        ]);
+
+        $paidAt = $order->paid_at
+            ? $order->paid_at->timezone('America/Mexico_City')->format('d/m/Y H:i')
+            : '-';
+
         return '<!doctype html><html><head><meta charset="utf-8"><title>Voucher</title></head>'
-            . '<body style="font-family:Arial,sans-serif;color:#222">'
+            . '<body style="font-family:Arial,sans-serif;color:#222;max-width:760px;margin:24px auto">'
             . '<h2 style="color:#e30613">Zapatería Angelita</h2>'
-            . '<h3>Comprobante de compra</h3>'
+            . '<h3>Voucher de compra · Pago confirmado</h3>'
             . '<p><strong>Pedido:</strong> ' . $esc($order->code) . '<br>'
-            . '<strong>Transacción:</strong> ' . $esc($order->payment_transaction_id ?: '-') . '<br>'
+            . '<strong>Movimiento Openpay:</strong> ' . $esc($order->payment_transaction_id ?: '-') . '<br>'
+            . '<strong>Referencia:</strong> ' . $esc($order->payment_reference ?: '-') . '<br>'
+            . '<strong>Fecha de pago:</strong> ' . $esc($paidAt) . '<br>'
             . '<strong>Cliente:</strong> ' . $esc($order->customer_name) . '<br>'
-            . '<strong>Correo:</strong> ' . $esc($order->customer_email) . '</p>'
+            . '<strong>Correo:</strong> ' . $esc($order->customer_email) . '<br>'
+            . '<strong>Teléfono:</strong> ' . $esc($order->shipping_phone ?: '-') . '</p>'
             . '<table width="100%" cellspacing="0" cellpadding="6" border="1" style="border-collapse:collapse">'
             . '<thead><tr><th>Producto</th><th>Talla</th><th>Color</th><th>Cant.</th><th>Precio</th></tr></thead>'
             . '<tbody>' . $rows . '</tbody></table>'
             . '<p><strong>Subtotal:</strong> ' . $esc($currency) . ' ' . number_format((float) $order->subtotal, 2) . '<br>'
             . '<strong>Envío:</strong> ' . $esc($currency) . ' ' . number_format((float) $order->shipping_cost, 2) . '<br>'
             . '<strong>Total:</strong> ' . $esc($currency) . ' ' . number_format((float) $order->total, 2) . '</p>'
-            . '<p>Gracias por tu compra.</p></body></html>';
+            . '<p><strong>Dirección de envío:</strong><br>' . $esc(implode(', ', $address)) . '</p>'
+            . '<p>Gracias por tu compra.</p>'
+            . '<p style="font-size:12px;color:#666">Este comprobante es emitido por Zapatería Angelita. '
+            . 'La institución bancaria puede enviar una notificación independiente de la operación.</p>'
+            . '</body></html>';
     }
 }

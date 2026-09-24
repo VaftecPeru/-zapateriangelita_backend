@@ -6,6 +6,7 @@ use App\Exceptions\GoogleIdentityUnavailable;
 use App\Mail\WelcomeUserMail;
 use App\Models\User;
 use App\Services\AccessTokenService;
+use App\Services\UserWelcomeNotificationService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -134,8 +135,12 @@ class GoogleAuthController extends Controller
             $user->save();
         }
 
-        // La sesión se devuelve inmediatamente. El frontend dispara el correo
-        // de bienvenida en una petición separada para que SMTP no bloquee el acceso.
+        // El backend deja el correo persistido para que no dependa de una segunda
+        // petición del navegador. SMTP nunca bloquea la creación de la sesión.
+        if ($accountCreated) {
+            app(UserWelcomeNotificationService::class)->schedule($user, 'google');
+        }
+
         return $this->issueSession($user, $accountCreated);
     }
 
@@ -151,25 +156,15 @@ class GoogleAuthController extends Controller
             ], 422);
         }
 
-        try {
-            Mail::to($user->email)->send(new WelcomeUserMail($user, 'google'));
+        $sent = app(UserWelcomeNotificationService::class)
+            ->processById((int) $user->id, true, 'google');
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Correo de bienvenida enviado.',
-            ]);
-        } catch (\Throwable $e) {
-            Log::error('GOOGLE_WELCOME_EMAIL_FAILED', [
-                'user_id' => $user->id,
-                'exception' => get_class($e),
-                'message' => $e->getMessage(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'La cuenta fue creada correctamente, pero el correo de bienvenida no pudo enviarse en este momento.',
-            ], 503);
-        }
+        return response()->json([
+            'success' => $sent,
+            'message' => $sent
+                ? 'Correo de bienvenida enviado.'
+                : 'La cuenta está activa, pero el correo quedó pendiente de reintento.',
+        ], $sent ? 200 : 503);
     }
 
     public function link(Request $request): JsonResponse
@@ -258,7 +253,8 @@ class GoogleAuthController extends Controller
                 'google_linked' => true,
                 'account_created' => $accountCreated,
                 'registration_method' => $accountCreated ? 'google' : null,
-                'welcome_email_required' => $accountCreated,
+                'welcome_email_required' => false,
+                'welcome_email_scheduled' => $accountCreated,
             ])
             ->cookie(
                 'sanctum_token',

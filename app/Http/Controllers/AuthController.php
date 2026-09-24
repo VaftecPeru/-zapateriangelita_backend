@@ -6,6 +6,7 @@ use App\Mail\PasswordChangedMail;
 use App\Mail\WelcomeUserMail;
 use App\Models\User;
 use App\Services\AccessTokenService;
+use App\Services\UserWelcomeNotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
@@ -76,19 +77,9 @@ class AuthController extends Controller
             throw $e;
         }
 
-        // En cPanel/PHP-FPM el correo se envía después de devolver la sesión.
-        // Un SMTP lento o caído no debe convertir un registro válido en un error.
-        app()->terminating(function () use ($user) {
-            try {
-                Mail::to($user->email)->send(new WelcomeUserMail($user));
-            } catch (\Throwable $e) {
-                Log::error('WELCOME_EMAIL_FAILED', [
-                    'user_id' => $user->id,
-                    'exception' => get_class($e),
-                    'message' => $e->getMessage(),
-                ]);
-            }
-        });
+        // El alta no depende del tiempo de respuesta de SMTP. La notificación
+        // queda persistida y puede reintentarse desde cPanel si el primer envío falla.
+        app(UserWelcomeNotificationService::class)->schedule($user, 'password');
 
         $token = app(AccessTokenService::class)->issue($user, 'auth_token');
 
@@ -97,6 +88,7 @@ class AuthController extends Controller
                 'token' => $token,
                 'token_type' => 'Bearer',
                 'user' => $user,
+                'welcome_email_scheduled' => true,
             ])
             ->cookie(
                 'sanctum_token',

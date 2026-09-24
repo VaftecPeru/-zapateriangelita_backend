@@ -48,6 +48,11 @@ class TransactionalEmailNotificationTest extends TestCase
             $table->string('google_sub')->nullable();
             $table->string('google_email')->nullable();
             $table->timestamp('google_linked_at')->nullable();
+            $table->string('welcome_email_method', 20)->nullable();
+            $table->timestamp('welcome_email_sent_at')->nullable();
+            $table->unsignedSmallInteger('welcome_email_attempts')->default(0);
+            $table->timestamp('welcome_email_next_attempt_at')->nullable();
+            $table->text('welcome_email_last_error')->nullable();
             $table->rememberToken();
             $table->timestamps();
         });
@@ -189,6 +194,10 @@ class TransactionalEmailNotificationTest extends TestCase
         Mail::assertSent(WelcomeUserMail::class, fn ($mail) =>
             $mail->hasTo('maria@example.com')
         );
+
+        $registered = User::where('email', 'maria@example.com')->firstOrFail();
+        $this->assertNotNull($registered->fresh()->welcome_email_sent_at);
+        $this->assertNull($registered->fresh()->welcome_email_next_attempt_at);
     }
 
     public function test_password_reset_notification_uses_branded_mail(): void
@@ -351,6 +360,31 @@ class TransactionalEmailNotificationTest extends TestCase
         Mail::assertSent(OrderStatusMail::class, fn ($mail) =>
             $mail->hasTo('estado@example.com')
         );
+    }
+
+    public function test_admin_mail_health_reports_configuration_without_exposing_password(): void
+    {
+        $admin = $this->user('mail-health-admin@example.com', 'admin');
+        Sanctum::actingAs($admin);
+
+        config([
+            'mail.default' => 'smtp',
+            'mail.from.address' => 'ventas@zapateriangelita.com',
+            'mail.mailers.smtp.host' => '',
+            'mail.mailers.smtp.username' => '',
+            'mail.mailers.smtp.password' => 'secret-do-not-expose',
+            'mail.mailers.smtp.port' => 587,
+            'mail.mailers.smtp.encryption' => 'tls',
+        ]);
+
+        $response = $this->getJson('/api/mail/health')
+            ->assertOk()
+            ->assertJsonPath('configured', false)
+            ->assertJsonPath('smtp.password_configured', true);
+
+        $payload = $response->json();
+        $this->assertArrayNotHasKey('password', $payload['smtp']);
+        $this->assertStringNotContainsString('secret-do-not-expose', json_encode($payload));
     }
 
     public function test_transactional_email_views_render_with_branding(): void

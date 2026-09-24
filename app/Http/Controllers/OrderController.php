@@ -11,6 +11,8 @@ use App\Models\ProductVariantStock;
 use App\Models\Coupon;
 use App\Models\ShippingMethod;
 use App\Services\DeliveryCostService;
+use App\Services\CpanelOrderNotificationService;
+use App\Services\CpanelOpenpayReconciliationService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -318,6 +320,130 @@ class OrderController extends Controller
         }
 
         return response()->json($order->fresh());
+    }
+
+    /**
+     * Conciliar pagos Openpay pendientes desde administración.
+     * POST /api/orders/reconcile-payments
+     */
+    public function reconcilePayments(
+        Request $request,
+        CpanelOpenpayReconciliationService $service
+    ): JsonResponse {
+        $validated = $request->validate([
+            'limit' => 'nullable|integer|min:1|max:20',
+            'order_id' => 'nullable|integer|exists:orders,id',
+        ]);
+
+        $limit = (int) ($validated['limit'] ?? 10);
+
+        $query = Order::query()->where('payment_status', 'processing');
+
+        if (!empty($validated['order_id'])) {
+            $query->whereKey((int) $validated['order_id']);
+        } else {
+            $minutes = max(5, (int) config('openpay.cpanel_reconcile_after_minutes', 10));
+            $query->where('updated_at', '<=', now()->subMinutes($minutes));
+        }
+
+        $orders = $query
+            ->orderBy('updated_at')
+            ->orderBy('id')
+            ->limit($limit)
+            ->get();
+
+        $summary = [];
+        $changed = [];
+
+        foreach ($orders as $pendingOrder) {
+            $before = (string) $pendingOrder->payment_status;
+            $result = $service->reconcile($pendingOrder);
+            $pendingOrder->refresh();
+
+            $summary[$result] = ($summary[$result] ?? 0) + 1;
+
+            if ($before !== (string) $pendingOrder->payment_status) {
+                $changed[] = [
+                    'id' => (int) $pendingOrder->id,
+                    'code' => $pendingOrder->code,
+                    'from' => $before,
+                    'to' => $pendingOrder->payment_status,
+                    'transaction_id' => $pendingOrder->payment_transaction_id,
+                ];
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'reviewed' => $orders->count(),
+            'changed' => $changed,
+            'summary' => $summary,
+        ]);
+    }
+
+    /**
+     * Reintentar confirmación de compra/voucher y credenciales pendientes.
+     * POST /api/orders/{order}/notifications/retry
+     */
+    public function retryNotifications(
+        Request $request,
+        Order $order,
+        CpanelOrderNotificationService $service
+    ): JsonResponse {
+        $validated = $request->validate([
+            'force_purchase' => 'nullable|boolean',
+        ]);
+
+        if ($order->payment_status !== 'paid') {
+            return response()->json([
+                'message' => 'Solo se pueden reenviar notificaciones de pedidos con pago confirmado.',
+            ], 422);
+        }
+
+        foreach ([
+            'purchase_email_sent_at',
+            'credential_email_ciphertext',
+            'credential_email_sent_at',
+            'notification_next_attempt_at',
+        ] as $column) {
+            if (!Schema::hasColumn('orders', $column)) {
+                return response()->json([
+                    'message' => 'La base de datos aún no tiene aplicada la migración de recuperación de correos.',
+                    'error_code' => 'MAIL_RECOVERY_MIGRATION_PENDING',
+                ], 503);
+            }
+        }
+
+        if (!empty($validated['force_purchase'])) {
+            Order::whereKey($order->id)->update([
+                'purchase_email_sent_at' => null,
+            ]);
+        }
+
+        Order::whereKey($order->id)->update([
+            'notification_next_attempt_at' => now(),
+            'notification_last_error' => null,
+        ]);
+
+        $sent = $service->processById((int) $order->id);
+        $fresh = $order->fresh('user:id,name,email,phone', 'items');
+
+        return response()->json([
+            'success' => $sent,
+            'message' => $sent
+                ? 'Notificaciones procesadas correctamente.'
+                : 'El correo sigue pendiente. Revisa el diagnóstico SMTP y el último error.',
+            'order' => $fresh,
+            'notification' => [
+                'purchase_email_sent_at' => $fresh?->purchase_email_sent_at,
+                'credential_email_sent_at' => $fresh?->credential_email_sent_at,
+                'credential_pending' => (bool) ($fresh?->credential_email_ciphertext)
+                    && !$fresh?->credential_email_sent_at,
+                'attempts' => (int) ($fresh?->notification_attempts ?? 0),
+                'next_attempt_at' => $fresh?->notification_next_attempt_at,
+                'last_error' => $fresh?->notification_last_error,
+            ],
+        ], $sent ? 200 : 202);
     }
 
     /**
