@@ -1327,6 +1327,12 @@ class CheckoutController extends Controller
             'account_created' => false,
             'requires_login' => false,
             'purchase_email_scheduled' => $scheduleNotifications,
+            'order_id' => (int) $paidOrder->id,
+            'order_code' => $paidOrder->code,
+            'transaction_id' => $paidOrder->payment_transaction_id,
+            'payment_reference' => $paidOrder->payment_reference,
+            'payment_status' => $paidOrder->payment_status,
+            'paid_at' => $paidOrder->paid_at?->toIso8601String(),
         ];
 
         if ($exposeTemporaryPassword && $createdUser && $temporaryPassword) {
