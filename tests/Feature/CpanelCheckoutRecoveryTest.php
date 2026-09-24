@@ -10,6 +10,7 @@ use App\Services\CpanelOrderNotificationService;
 use App\Services\CpanelOpenpayReconciliationService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
@@ -142,6 +143,50 @@ class CpanelCheckoutRecoveryTest extends TestCase
         $this->assertNotNull($order->credential_email_sent_at);
         $this->assertNull($order->credential_email_ciphertext);
         $this->assertNull($order->notification_next_attempt_at);
+    }
+
+
+    public function test_scheduled_reconciliation_command_promotes_stale_processing_order_to_paid(): void
+    {
+        Mail::fake();
+        config([
+            'openpay.merchant_id' => 'merchant_test',
+            'openpay.private_key' => 'private_test',
+            'openpay.base_url' => 'https://sandbox-api.openpay.mx',
+            'openpay.currency' => 'MXN',
+            'openpay.cpanel_reconcile_after_minutes' => 10,
+            'services.payment_service.enabled' => false,
+        ]);
+
+        $user = $this->user('cron-reconcile@example.com');
+        $order = $this->order(
+            $user,
+            'ZA-CPANEL-CRON-001',
+            'processing',
+            'ZA-CPANEL-CRON-001-REF',
+            'tr_cpanel_cron_001'
+        );
+
+        DB::table('orders')
+            ->where('id', $order->id)
+            ->update(['updated_at' => now()->subMinutes(20)]);
+
+        Http::fake([
+            'https://sandbox-api.openpay.mx/v1/merchant_test/charges/tr_cpanel_cron_001' => Http::response([
+                'id' => 'tr_cpanel_cron_001',
+                'order_id' => 'ZA-CPANEL-CRON-001-REF',
+                'amount' => 475.00,
+                'currency' => 'MXN',
+                'status' => 'completed',
+            ], 200),
+        ]);
+
+        $this->artisan('checkout:reconcile-openpay --limit=20')
+            ->assertExitCode(0);
+
+        $order->refresh();
+        $this->assertSame('paid', $order->payment_status);
+        $this->assertNotNull($order->paid_at);
     }
 
     public function test_cpanel_reconciliation_marks_known_completed_charge_as_paid(): void
