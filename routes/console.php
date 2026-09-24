@@ -12,11 +12,15 @@ Artisan::command('inspire', function () {
 
 /*
 |--------------------------------------------------------------------------
-| Reintentos de correo transaccional
+| Conciliación Openpay + reintentos de correo transaccional
 |--------------------------------------------------------------------------
 | En cPanel configure una sola tarea cron que ejecute "php artisan schedule:run"
-| cada minuto. Laravel dispara estos dos procesadores sin solaparlos.
+| cada minuto. Laravel conciliará pagos y procesará correos sin solaparlos.
 */
+Schedule::command('checkout:reconcile-openpay --limit=20')
+    ->everyFiveMinutes()
+    ->withoutOverlapping();
+
 Schedule::command('checkout:process-notifications --limit=25')
     ->everyMinute()
     ->withoutOverlapping();
