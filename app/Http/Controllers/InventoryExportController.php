@@ -34,34 +34,35 @@ class InventoryExportController extends Controller
             . '<Style ss:ID="Out"><Font ss:Color="#B91C1C" ss:Bold="1"/></Style>'
             . '</Styles>' . "\n";
         $xml .= '<Worksheet ss:Name="Inventario"><Table>'
-            . '<Column ss:Width="90"/><Column ss:Width="190"/><Column ss:Width="95"/>'
+            . '<Column ss:Width="45"/><Column ss:Width="90"/><Column ss:Width="190"/><Column ss:Width="95"/>'
             . '<Column ss:Width="95"/><Column ss:Width="65"/><Column ss:Width="75"/>'
             . '<Column ss:Width="75"/><Column ss:Width="80"/><Column ss:Width="95"/>' . "\n";
 
         $xml .= $this->excelRow([
-            [$storeName, 'String', 'Title', 9],
+            [$storeName, 'String', 'Title', 10],
         ]);
         $xml .= $this->excelRow([
-            ['REPORTE PROFESIONAL DE INVENTARIO POR TALLA', 'String', 'Subtitle', 9],
+            ['REPORTE PROFESIONAL DE INVENTARIO POR TALLA', 'String', 'Subtitle', 10],
         ]);
         $xml .= $this->excelRow([
-            ['Generado: ' . $generatedAt->format('d/m/Y H:i'), 'String', 'Subtitle', 9],
+            ['Generado: ' . $generatedAt->format('d/m/Y H:i'), 'String', 'Subtitle', 10],
         ]);
         $xml .= $this->excelRow([
             ['Productos: ' . $summary['products'], 'String', 'Subtitle', 2],
             ['Unidades disponibles: ' . $summary['units'], 'String', 'Subtitle', 2],
             ['Stock bajo: ' . $summary['low_stock_products'], 'String', 'Subtitle', 2],
-            ['Agotados: ' . $summary['out_of_stock_products'], 'String', 'Subtitle', 3],
+            ['Agotados: ' . $summary['out_of_stock_products'], 'String', 'Subtitle', 4],
         ]);
         $xml .= '<Row ss:Height="8"></Row>' . "\n";
         $xml .= $this->excelRow(array_map(
             fn (string $header) => [$header, 'String', 'Header', 1],
-            ['Código', 'Producto', 'Categoría', 'Marca', 'Talla', 'Stock talla', 'Stock total', 'Precio MXN', 'Estado']
+            ['N°', 'Código', 'Producto', 'Categoría', 'Marca', 'Talla', 'Stock talla', 'Stock total', 'Precio MXN', 'Estado']
         ));
 
-        foreach ($rows as $row) {
+        foreach ($rows as $index => $row) {
             $statusStyle = $row['status'] === 'Agotado' ? 'Out' : ($row['status'] === 'Stock bajo' ? 'Low' : 'Default');
             $xml .= $this->excelRow([
+                [$index + 1, 'Number', 'Number', 1],
                 [$row['code'], 'String', 'Default', 1],
                 [$row['name'], 'String', 'Default', 1],
                 [$row['category'], 'String', 'Default', 1],
@@ -265,32 +266,130 @@ class InventoryExportController extends Controller
 
             $stream .= "q 0.95 0.95 0.95 rg 36 496 720 20 re f Q\n";
             $headers = [
-                [40, 'Código'],
-                [100, 'Producto'],
-                [260, 'Categoría'],
+                [40, 'N°'],
+                [62, 'Código'],
+                [118, 'Producto'],
+                [270, 'Categoría'],
                 [350, 'Marca'],
-                [430, 'Talla'],
-                [475, 'Stock talla'],
-                [545, 'Total'],
-                [590, 'Precio'],
-                [655, 'Estado'],
+                [422, 'Talla'],
+                [464, 'Stock talla'],
+                [530, 'Total'],
+                [574, 'Precio'],
+                [638, 'Estado'],
             ];
             foreach ($headers as [$x, $label]) {
                 $stream .= $this->pdfText($x, 503, 7.5, $label, true);
             }
 
             $y = 482;
-            foreach ($chunk as $row) {
+            foreach ($chunk as $rowIndex => $row) {
+                $sequence = ($pageIndex * $rowsPerPage) + $rowIndex + 1;
                 $stream .= "q 0.88 0.88 0.88 RG 36 " . ($y - 4) . " m 756 " . ($y - 4) . " l S Q\n";
-                $stream .= $this->pdfText(40, $y, 7.2, $this->truncate($row['code'], 12));
-                $stream .= $this->pdfText(100, $y, 7.2, $this->truncate($row['name'], 30));
-                $stream .= $this->pdfText(260, $y, 7.2, $this->truncate($row['category'], 15));
-                $stream .= $this->pdfText(350, $y, 7.2, $this->truncate($row['brand'], 13));
-                $stream .= $this->pdfText(430, $y, 7.2, $this->truncate($row['size'], 8));
-                $stream .= $this->pdfText(482, $y, 7.2, (string) $row['size_stock']);
-                $stream .= $this->pdfText(552, $y, 7.2, (string) $row['total_stock']);
-                $stream .= $this->pdfText(590, $y, 7.2, '$' . number_format((float) $row['price'], 2));
-                $stream .= $this->pdfText(655, $y, 7.2, $this->truncate($row['status'], 16));
+                $stream .= $this->pdfText(40, $y, 7.2, (string) $sequence);
+                $stream .= $this->pdfText(62, $y, 7.2, $this->truncate($row['code'], 10));
+                $stream .= $this->pdfText(118, $y, 7.2, $this->truncate($row['name'], 28));
+                $stream .= $this->pdfText(270, $y, 7.2, $this->truncate($row['category'], 13));
+                $stream .= $this->pdfText(350, $y, 7.2, $this->truncate($row['brand'], 11));
+                $stream .= $this->pdfText(422, $y, 7.2, $this->truncate($row['size'], 7));
+                $stream .= $this->pdfText(470, $y, 7.2, (string) $row['size_stock']);
+                $stream .= $this->pdfText(536, $y, 7.2, (string) $row['total_stock']);
+                $stream .= $this->pdfText(574, $y, 7.2, '
+
+            if (!$chunk) {
+                $stream .= $this->pdfText(36, 466, 9, 'No hay productos que coincidan con los filtros seleccionados.');
+            }
+
+            $stream .= $this->pdfText(36, 24, 7, 'Zapatería Angelita · Control de inventario por talla');
+            $stream .= $this->pdfText(710, 24, 7, 'Pág. ' . ($pageIndex + 1) . '/' . $pageCount);
+            $streams[] = $stream;
+        }
+
+        return $this->assemblePdf($streams);
+    }
+
+    private function pdfText(float $x, float $y, float $size, string $text, bool $bold = false): string
+    {
+        $font = $bold ? 'F2' : 'F1';
+        return sprintf(
+            "BT /%s %.1f Tf 1 0 0 1 %.1f %.1f Tm (%s) Tj ET\n",
+            $font,
+            $size,
+            $x,
+            $y,
+            $this->escapePdfText($text),
+        );
+    }
+
+    private function escapePdfText(string $text): string
+    {
+        $encoded = mb_convert_encoding($text, 'Windows-1252', 'UTF-8');
+        return str_replace(
+            ['\\', '(', ')', "\r", "\n"],
+            ['\\\\', '\\(', '\\)', ' ', ' '],
+            $encoded,
+        );
+    }
+
+    private function truncate(string $value, int $length): string
+    {
+        $value = trim(preg_replace('/\s+/u', ' ', $value) ?? $value);
+        return mb_strlen($value, 'UTF-8') <= $length
+            ? $value
+            : mb_substr($value, 0, max(1, $length - 1), 'UTF-8') . '…';
+    }
+
+    private function assemblePdf(array $streams): string
+    {
+        $objects = [];
+        $objects[1] = '<< /Type /Catalog /Pages 2 0 R >>';
+        $objects[3] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
+        $objects[4] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
+
+        $pageObjectNumbers = [];
+        $objectNumber = 5;
+
+        foreach ($streams as $stream) {
+            $pageObject = $objectNumber++;
+            $contentObject = $objectNumber++;
+            $pageObjectNumbers[] = $pageObject;
+
+            $objects[$pageObject] = sprintf(
+                '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 792 612] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents %d 0 R >>',
+                $contentObject,
+            );
+            $objects[$contentObject] = "<< /Length " . strlen($stream) . " >>\nstream\n" . $stream . "endstream";
+        }
+
+        $kids = implode(' ', array_map(fn ($number) => $number . ' 0 R', $pageObjectNumbers));
+        $objects[2] = '<< /Type /Pages /Kids [' . $kids . '] /Count ' . count($pageObjectNumbers) . ' >>';
+
+        ksort($objects);
+        $pdf = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
+        $offsets = [0 => 0];
+
+        foreach ($objects as $number => $object) {
+            $offsets[$number] = strlen($pdf);
+            $pdf .= $number . " 0 obj\n" . $object . "\nendobj\n";
+        }
+
+        $xrefOffset = strlen($pdf);
+        $maxObject = max(array_keys($objects));
+        $pdf .= "xref\n0 " . ($maxObject + 1) . "\n";
+        $pdf .= "0000000000 65535 f \n";
+
+        for ($number = 1; $number <= $maxObject; $number++) {
+            $offset = $offsets[$number] ?? 0;
+            $pdf .= sprintf("%010d 00000 n \n", $offset);
+        }
+
+        $pdf .= "trailer\n<< /Size " . ($maxObject + 1) . " /Root 1 0 R >>\n";
+        $pdf .= "startxref\n" . $xrefOffset . "\n%%EOF";
+
+        return $pdf;
+    }
+}
+ . number_format((float) $row['price'], 2));
+                $stream .= $this->pdfText(638, $y, 7.2, $this->truncate($row['status'], 15));
                 $y -= 16;
             }
 
