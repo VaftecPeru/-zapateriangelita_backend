@@ -160,8 +160,8 @@ class InventoryExportTest extends TestCase
 
     public function test_inventory_exports_are_not_public(): void
     {
-        $this->get('/api/inventory/export/excel')->assertUnauthorized();
-        $this->get('/api/inventory/export/pdf')->assertUnauthorized();
+        $this->getJson('/api/inventory/export/excel')->assertUnauthorized();
+        $this->getJson('/api/inventory/export/pdf')->assertUnauthorized();
     }
 
     private function admin(): User
