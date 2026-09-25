@@ -293,7 +293,12 @@ class InventoryExportController extends Controller
                 $stream .= $this->pdfText(422, $y, 7.2, $this->truncate($row['size'], 7));
                 $stream .= $this->pdfText(470, $y, 7.2, (string) $row['size_stock']);
                 $stream .= $this->pdfText(536, $y, 7.2, (string) $row['total_stock']);
-                $stream .= $this->pdfText(574, $y, 7.2, '
+                $stream .= $this->pdfText(574, $y, 7.2, '$' . number_format((float) $row['price'], 2));
+                $stream .= $this->pdfText(638, $y, 7.2, $this->truncate($row['status'], 15));
+                $y -= 16;
+            }
+
+            if (!$chunk) {
                 $stream .= $this->pdfText(36, 466, 9, 'No hay productos que coincidan con los filtros seleccionados.');
             }
 
