@@ -126,7 +126,10 @@ class InventoryExportTest extends TestCase
         $content = $response->getContent();
         $this->assertStringContainsString('REPORTE PROFESIONAL DE INVENTARIO POR TALLA', $content);
         $this->assertStringContainsString('ZAP-001', $content);
+        $this->assertStringContainsString('N°', $content);
         $this->assertStringContainsString('Stock talla', $content);
+        $this->assertStringContainsString('ss:Type="Number">1</Data>', $content);
+        $this->assertStringContainsString('ss:Type="Number">2</Data>', $content);
         $this->assertStringContainsString('>36<', $content);
         $this->assertStringContainsString('>6<', $content);
         $this->assertStringContainsString('>37<', $content);
@@ -156,6 +159,7 @@ class InventoryExportTest extends TestCase
         $this->assertStringStartsWith('%PDF-1.4', $content);
         $this->assertStringContainsString('REPORTE PROFESIONAL DE INVENTARIO POR TALLA', $content);
         $this->assertStringContainsString('ZAP-001', $content);
+        $this->assertStringContainsString('(1) Tj', $content);
     }
 
     public function test_inventory_exports_are_not_public(): void
