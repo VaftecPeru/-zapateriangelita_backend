@@ -114,6 +114,73 @@ class ProductController extends Controller
         }
     }
 
+    private function normalizeSizeStocks(?string $value): array
+    {
+        if (!$value) {
+            return [];
+        }
+
+        $decoded = json_decode($value, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        $result = [];
+        $seen = [];
+
+        foreach ($decoded as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $size = trim((string) ($entry['size'] ?? ''));
+            $stock = $entry['stock'] ?? null;
+
+            if (
+                $size === '' ||
+                mb_strlen($size) > 10 ||
+                !is_numeric($stock) ||
+                (int) $stock < 0
+            ) {
+                continue;
+            }
+
+            $key = mb_strtolower($size);
+            if (isset($seen[$key])) {
+                continue;
+            }
+
+            $seen[$key] = true;
+            $result[] = [
+                'size' => $size,
+                'stock' => (int) $stock,
+            ];
+        }
+
+        return $result;
+    }
+
+    private function syncSizeStocks(Product $product, array $sizeStocks): void
+    {
+        if (!$sizeStocks) {
+            return;
+        }
+
+        $sizes = array_column($sizeStocks, 'size');
+        $totalStock = array_sum(array_column($sizeStocks, 'stock'));
+
+        $product->sizes()->whereNotIn('size', $sizes)->delete();
+
+        foreach ($sizeStocks as $entry) {
+            ProductSize::updateOrCreate(
+                ['product_id' => $product->id, 'size' => $entry['size']],
+                ['stock' => $entry['stock']],
+            );
+        }
+
+        $product->forceFill(['stock' => $totalStock])->saveQuietly();
+    }
+
     private function normalizeVariantStocks(?string $value): array
     {
         if (!$value) {
@@ -323,11 +390,16 @@ class ProductController extends Controller
             'status' => 'required|in:normal,oferta,nuevo',
             'color_sizes' => 'nullable|json',
             'variant_stocks' => 'nullable|json',
+            'size_stocks' => 'nullable|json',
         ]);
 
         $variantStocks = $this->normalizeVariantStocks($request->input('variant_stocks'));
+        $sizeStocks = $this->normalizeSizeStocks($request->input('size_stocks'));
+
         if ($variantStocks) {
             $validated['stock'] = array_sum(array_column($variantStocks, 'stock'));
+        } elseif ($sizeStocks) {
+            $validated['stock'] = array_sum(array_column($sizeStocks, 'stock'));
         }
 
         $discount = (float) ($validated['discount'] ?? 0);
@@ -368,9 +440,14 @@ class ProductController extends Controller
                 }
             }
 
-            DB::transaction(function () use (&$product, $validated, $variantStocks) {
+            DB::transaction(function () use (&$product, $validated, $variantStocks, $sizeStocks) {
                 $product = Product::create($validated);
                 $this->syncVariants($product);
+
+                if ($sizeStocks) {
+                    $this->syncSizeStocks($product, $sizeStocks);
+                }
+
                 $this->syncVariantStocks($product, $variantStocks);
             });
             $product->load('sizes', 'colors', 'variantStocks');
@@ -414,6 +491,7 @@ class ProductController extends Controller
             'color_images' => 'sometimes|array',
             'color_sizes' => 'sometimes|json',
             'variant_stocks' => 'sometimes|json',
+            'size_stocks' => 'sometimes|json',
         ]);
 
         if ($validator->fails()) {
@@ -424,8 +502,15 @@ class ProductController extends Controller
         $variantStocks = $request->has('variant_stocks')
             ? $this->normalizeVariantStocks($request->input('variant_stocks'))
             : null;
+        $sizeStocks = $request->has('size_stocks')
+            ? $this->normalizeSizeStocks($request->input('size_stocks'))
+            : null;
+        $resetVariantStocks = $request->has('size_stocks') && !$request->has('variant_stocks');
+
         if (is_array($variantStocks) && $request->has('variant_stocks')) {
             $validated['stock'] = array_sum(array_column($variantStocks, 'stock'));
+        } elseif (is_array($sizeStocks) && $request->has('size_stocks')) {
+            $validated['stock'] = array_sum(array_column($sizeStocks, 'stock'));
         }
 
         $price = array_key_exists('price', $validated) ? (float) $validated['price'] : (float) $product->price;
@@ -519,7 +604,7 @@ class ProductController extends Controller
                 ->values()
                 ->all();
 
-            DB::transaction(function () use ($product, $validated, $existingSizeStock, $originalSizes, $originalColors, $variantStocks) {
+            DB::transaction(function () use ($product, $validated, $existingSizeStock, $originalSizes, $originalColors, $variantStocks, $sizeStocks, $resetVariantStocks) {
                 $product->update($validated);
                 $freshProduct = $product->fresh();
 
@@ -544,6 +629,14 @@ class ProductController extends Controller
                 // cambió realmente la estructura de tallas/colores.
                 if ($originalSizes !== $updatedSizes || $originalColors !== $updatedColors) {
                     $this->syncVariants($freshProduct, $existingSizeStock);
+                }
+
+                if (is_array($sizeStocks)) {
+                    $this->syncSizeStocks($freshProduct, $sizeStocks);
+                }
+
+                if ($resetVariantStocks) {
+                    $freshProduct->variantStocks()->delete();
                 }
 
                 if (is_array($variantStocks)) {
