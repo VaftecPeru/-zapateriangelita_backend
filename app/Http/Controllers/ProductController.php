@@ -135,12 +135,13 @@ class ProductController extends Controller
 
             $size = trim((string) ($entry['size'] ?? ''));
             $stock = $entry['stock'] ?? null;
+            $numericStock = is_numeric($stock) ? (float) $stock : -1;
 
             if (
                 $size === '' ||
                 mb_strlen($size) > 10 ||
-                !is_numeric($stock) ||
-                (int) $stock < 0
+                $numericStock < 0 ||
+                floor($numericStock) !== $numericStock
             ) {
                 continue;
             }
@@ -153,7 +154,7 @@ class ProductController extends Controller
             $seen[$key] = true;
             $result[] = [
                 'size' => $size,
-                'stock' => (int) $stock,
+                'stock' => (int) $numericStock,
             ];
         }
 
@@ -505,11 +506,11 @@ class ProductController extends Controller
         $sizeStocks = $request->has('size_stocks')
             ? $this->normalizeSizeStocks($request->input('size_stocks'))
             : null;
-        $resetVariantStocks = $request->has('size_stocks') && !$request->has('variant_stocks');
+        $resetVariantStocks = $request->has('size_stocks') && !empty($sizeStocks) && !$request->has('variant_stocks');
 
         if (is_array($variantStocks) && $request->has('variant_stocks')) {
             $validated['stock'] = array_sum(array_column($variantStocks, 'stock'));
-        } elseif (is_array($sizeStocks) && $request->has('size_stocks')) {
+        } elseif (is_array($sizeStocks) && !empty($sizeStocks) && $request->has('size_stocks')) {
             $validated['stock'] = array_sum(array_column($sizeStocks, 'stock'));
         }
 
@@ -631,7 +632,7 @@ class ProductController extends Controller
                     $this->syncVariants($freshProduct, $existingSizeStock);
                 }
 
-                if (is_array($sizeStocks)) {
+                if (is_array($sizeStocks) && !empty($sizeStocks)) {
                     $this->syncSizeStocks($freshProduct, $sizeStocks);
                 }
 
