@@ -25,7 +25,8 @@ use App\Http\Controllers\ProductColorController;
 use App\Http\Controllers\Api\OpenpayController;
 use App\Http\Controllers\NewsletterController;
 use App\Http\Controllers\InteractionController;
-use App\Http\Controllers\HealthController;\nuse App\\Http\\Controllers\\InventoryExportController;
+use App\Http\Controllers\HealthController;
+use App\Http\Controllers\InventoryExportController;
 
 // Diagnóstico mínimo para cPanel. No usa throttle ni expone secretos.
 Route::get('/health', HealthController::class);
