@@ -25,7 +25,7 @@ use App\Http\Controllers\ProductColorController;
 use App\Http\Controllers\Api\OpenpayController;
 use App\Http\Controllers\NewsletterController;
 use App\Http\Controllers\InteractionController;
-use App\Http\Controllers\HealthController;
+use App\Http\Controllers\HealthController;\nuse App\\Http\\Controllers\\InventoryExportController;
 
 // Diagnóstico mínimo para cPanel. No usa throttle ni expone secretos.
 Route::get('/health', HealthController::class);
@@ -202,6 +202,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/products/{product}', [ProductController::class, 'update']);
 
         Route::delete('/products/{product}', [ProductController::class, 'destroy']);
+
+        // Exportación profesional del inventario actual (respeta filtros del catálogo)
+        Route::get('/inventory/export/excel', [InventoryExportController::class, 'excel']);
+        Route::get('/inventory/export/pdf', [InventoryExportController::class, 'pdf']);
 
         // Servicios
         Route::post('/services', [AdditionalServiceController::class, 'store']);
