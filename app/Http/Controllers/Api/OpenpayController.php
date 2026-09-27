@@ -9,6 +9,7 @@ use App\Services\CheckoutStockService;
 use App\Services\DeferredOrderNotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -19,15 +20,24 @@ class OpenpayController extends Controller
     public function config()
     {
         $missing = $this->configurationErrors();
+        $credentialCheck = empty($missing)
+            ? $this->providerCredentialCheck()
+            : [
+                'ok' => false,
+                'code' => 'OPENPAY_CONFIG_INVALID',
+                'provider_status' => null,
+                'merchant_status' => null,
+            ];
 
         return response()->json([
-            'configured' => empty($missing),
+            'configured' => empty($missing) && $credentialCheck['ok'],
             'configuration_errors' => $missing,
             'merchant_id' => config('openpay.merchant_id'),
             'public_key' => config('openpay.public_key'),
             'sandbox' => config('openpay.sandbox'),
             'environment' => config('openpay.environment'),
             'charge_resource' => '/v1/{merchant_id}/charges',
+            'credential_check' => $credentialCheck,
         ]);
     }
 
@@ -716,25 +726,142 @@ class OpenpayController extends Controller
                 $errors[] = 'openpay.' . $key;
             }
         }
+
+        $merchantId = trim((string) config('openpay.merchant_id'));
+        $publicKey = trim((string) config('openpay.public_key'));
+        $privateKey = trim((string) config('openpay.private_key'));
+
+        if ($merchantId !== '' && !preg_match('/^[A-Za-z0-9_-]{8,64}$/', $merchantId)) {
+            $errors[] = 'openpay.merchant_id formato inválido';
+        }
+        if ($publicKey !== '' && !preg_match('/^pk_[A-Za-z0-9_-]+$/', $publicKey)) {
+            $errors[] = 'openpay.public_key formato inválido';
+        }
+        if ($privateKey !== '' && !preg_match('/^sk_[A-Za-z0-9_-]+$/', $privateKey)) {
+            $errors[] = 'openpay.private_key formato inválido';
+        }
+
         $sandbox = filter_var(config('openpay.sandbox'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
         if (config('openpay.sandbox') === null || $sandbox === null) {
             $errors[] = 'openpay.sandbox';
         }
+
         $base = rtrim((string) config('openpay.base_url'), '/');
         $expected = $sandbox === false ? 'https://api.openpay.mx' : 'https://sandbox-api.openpay.mx';
         if ($base !== $expected) {
             $errors[] = 'openpay.base_url debe coincidir con el entorno México';
         }
+
         $redirect = (string) config('openpay.redirect_url');
-        $redirectValid = filter_var( $redirect,    FILTER_VALIDATE_URL);
-        $scheme = parse_url( $redirect, PHP_URL_SCHEME);
-        $host = parse_url( $redirect, PHP_URL_HOST);
+        $redirectValid = filter_var($redirect, FILTER_VALIDATE_URL);
+        $scheme = parse_url($redirect, PHP_URL_SCHEME);
+        $host = parse_url($redirect, PHP_URL_HOST);
         $isLocalhost = in_array($host, ['localhost', '127.0.0.1'], true);
 
         if (
             !$redirectValid || ($scheme !== 'https' && !($sandbox === true && $isLocalhost))
-        ) { $errors[] = 'openpay.redirect_url no es válida para el entorno actual'; }
+        ) {
+            $errors[] = 'openpay.redirect_url no es válida para el entorno actual';
+        }
+
         return array_values(array_unique($errors));
+    }
+
+    /**
+     * Verifica de forma segura que merchant_id + private_key + entorno
+     * realmente autentican contra Openpay. No expone la llave privada ni
+     * información sensible del comercio.
+     */
+    private function providerCredentialCheck(): array
+    {
+        $merchantId = trim((string) config('openpay.merchant_id'));
+        $privateKey = trim((string) config('openpay.private_key'));
+        $baseUrl = rtrim((string) config('openpay.base_url'), '/');
+
+        $cacheKey = 'openpay:credential-check:' . sha1(
+            implode('|', [
+                $baseUrl,
+                $merchantId,
+                substr(hash('sha256', $privateKey), 0, 12),
+            ])
+        );
+
+        try {
+            return Cache::remember($cacheKey, now()->addMinutes(5), function () use ($merchantId, $privateKey, $baseUrl) {
+                try {
+                    $response = Http::connectTimeout(4)
+                        ->timeout(8)
+                        ->withoutRedirecting()
+                        ->withBasicAuth($privateKey, '')
+                        ->acceptJson()
+                        ->get($baseUrl . '/v1/' . rawurlencode($merchantId));
+
+                    $providerStatus = $response->status();
+                    $data = $response->json();
+
+                    if ($response->successful() && is_array($data)) {
+                        $providerMerchantId = trim((string) ($data['id'] ?? ''));
+                        if ($providerMerchantId !== '' && !hash_equals($merchantId, $providerMerchantId)) {
+                            return [
+                                'ok' => false,
+                                'code' => 'OPENPAY_MERCHANT_MISMATCH',
+                                'provider_status' => $providerStatus,
+                                'merchant_status' => isset($data['status']) ? (string) $data['status'] : null,
+                            ];
+                        }
+
+                        return [
+                            'ok' => true,
+                            'code' => 'OPENPAY_OK',
+                            'provider_status' => $providerStatus,
+                            'merchant_status' => isset($data['status']) ? (string) $data['status'] : null,
+                        ];
+                    }
+
+                    if (in_array($providerStatus, [401, 403], true)) {
+                        return [
+                            'ok' => false,
+                            'code' => 'OPENPAY_CREDENTIALS_INVALID',
+                            'provider_status' => $providerStatus,
+                            'merchant_status' => null,
+                        ];
+                    }
+
+                    return [
+                        'ok' => false,
+                        'code' => 'OPENPAY_PROVIDER_UNAVAILABLE',
+                        'provider_status' => $providerStatus,
+                        'merchant_status' => null,
+                    ];
+                } catch (\Throwable $e) {
+                    Log::channel('openpay')->warning('OPENPAY_CREDENTIAL_PREFLIGHT_FAILED', [
+                        'environment' => (string) config('openpay.environment'),
+                        'merchant' => substr(hash('sha256', $merchantId), 0, 12),
+                        'exception' => get_class($e),
+                    ]);
+
+                    return [
+                        'ok' => false,
+                        'code' => 'OPENPAY_PROVIDER_UNAVAILABLE',
+                        'provider_status' => null,
+                        'merchant_status' => null,
+                    ];
+                }
+            });
+        } catch (\Throwable $e) {
+            // Si el cache de cPanel no está disponible, el checkout debe seguir
+            // siendo diagnosticable en vez de fallar por un problema secundario.
+            Log::warning('OPENPAY_CREDENTIAL_PREFLIGHT_CACHE_FAILED', [
+                'exception' => get_class($e),
+            ]);
+
+            return [
+                'ok' => false,
+                'code' => 'OPENPAY_PREFLIGHT_UNAVAILABLE',
+                'provider_status' => null,
+                'merchant_status' => null,
+            ];
+        }
     }
 
     private function safeLog(string $level, string $message, array $context = []): void
