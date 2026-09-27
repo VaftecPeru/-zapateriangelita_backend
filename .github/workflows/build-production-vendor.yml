@@ -1,0 +1,39 @@
+name: Build production vendor ZIP
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-vendor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, intl, pdo_mysql, bcmath, curl, openssl, fileinfo
+          tools: composer:v2
+
+      - name: Validate lock file
+        run: composer validate --strict --no-check-publish
+
+      - name: Install production dependencies
+        run: composer install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader
+
+      - name: Verify Laravel version
+        run: |
+          php -r "require 'vendor/autoload.php'; echo Illuminate\\Foundation\\Application::VERSION, PHP_EOL;"
+
+      - name: Create vendor archive
+        run: zip -qr vendor-production.zip vendor
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vendor-production-laravel12
+          path: vendor-production.zip
+          if-no-files-found: error
+          retention-days: 1
