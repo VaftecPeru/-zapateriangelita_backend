@@ -158,7 +158,36 @@ class UserController extends Controller
             'user' => $user->fresh(),
         ]);
     }
+   public function changePassword(Request $request): JsonResponse
+{
+    $validated = $request->validate([
+        'password' => [
+            'required',
+            'string',
+            'min:8',
+            'regex:/[A-Z]/',
+            'regex:/[a-z]/',
+            'regex:/[0-9]/',
+            'confirmed',
+        ],
+    ], [
+        'password.regex' => 'La contraseña debe incluir mayúsculas, minúsculas y números.',
+    ]);
 
+    $user = $request->user();
+
+    $user->forceFill([
+        'password' => Hash::make($validated['password']),
+        'must_change_password' => false,
+        'temporary_password_set_at' => null,
+    ])->save();
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Contraseña actualizada correctamente.',
+        'user' => $user->fresh(),
+    ]);
+}
     public function updateRole(Request $request, string $id): JsonResponse
     {
         $actor = $request->user();
