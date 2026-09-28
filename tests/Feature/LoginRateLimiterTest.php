@@ -23,8 +23,7 @@ class LoginRateLimiterTest extends TestCase
             'cache.stores.array' => ['driver' => 'array', 'serialize' => false],
         ]);
 
-        Cache::clear();
-        RateLimiter::clear('noop');
+        Cache::flush();
 
         Schema::create('users', function (Blueprint $table) {
             $table->id();
