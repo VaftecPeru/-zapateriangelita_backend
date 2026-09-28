@@ -1,31 +1,41 @@
 name: Validate corrective backend
+
 on:
   pull_request:
     branches:
       - main
+  push:
+    branches:
+      - main
   workflow_dispatch:
+
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
           extensions: mbstring, intl, pdo_sqlite, bcmath, curl, openssl, fileinfo
           tools: composer:v2
-      - run: composer update --lock --no-interaction --no-progress
-      - run: composer validate --strict --no-check-publish
-      - run: composer install --prefer-dist --no-interaction --no-progress
-      - run: composer audit --locked
-      - uses: actions/upload-artifact@v4
-        with:
-          name: composer-lock-final
-          path: composer.lock
-          retention-days: 1
-      - run: find app routes config database tests -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+
+      - name: Validate composer metadata
+        run: composer validate --strict --no-check-publish
+
+      - name: Install locked dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Audit locked dependencies
+        run: composer audit --locked
+
+      - name: PHP syntax check
+        run: find app routes config database tests -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+
       - name: Prepare test environment
         run: |
+          touch database/database.sqlite
           printf '%s\n' \
             'APP_NAME=AngelitaAudit' \
             'APP_ENV=testing' \
@@ -35,7 +45,7 @@ jobs:
             'FRONTEND_URL=http://localhost:5173' \
             'LOG_CHANNEL=stderr' \
             'DB_CONNECTION=sqlite' \
-            'DB_DATABASE=:memory:' \
+            "DB_DATABASE=$GITHUB_WORKSPACE/database/database.sqlite" \
             'CACHE_STORE=array' \
             'CACHE_DRIVER=array' \
             'SESSION_DRIVER=array' \
@@ -47,6 +57,15 @@ jobs:
             'OPENPAY_PUBLIC_KEY=pk_test' \
             'OPENPAY_PRIVATE_KEY=sk_test' \
             'OPENPAY_REDIRECT_URL=https://example.test/checkout' > .env
-      - run: php artisan about
-      - run: php artisan route:list
-      - run: vendor/bin/phpunit --testdox
+
+      - name: Laravel boot
+        run: php artisan about
+
+      - name: Validate migrations from zero
+        run: php artisan migrate:fresh --force
+
+      - name: Validate routes
+        run: php artisan route:list
+
+      - name: Run backend test suite
+        run: vendor/bin/phpunit --testdox
