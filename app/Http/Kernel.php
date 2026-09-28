@@ -59,6 +59,7 @@ class Kernel extends HttpKernel
         'can' => \Illuminate\Auth\Middleware\Authorize::class,
         'admin' => \App\Http\Middleware\IsAdmin::class,
         'payment.service' => \App\Http\Middleware\VerifyPaymentServiceSignature::class,
+        'login.throttle' => \App\Http\Middleware\ThrottleLoginAttempts::class,
         'compress' => \App\Http\Middleware\CompressResponse::class, 
         'guest' => \App\Http\Middleware\RedirectIfAuthenticated::class,
         'password.confirm' => \Illuminate\Auth\Middleware\RequirePassword::class,
