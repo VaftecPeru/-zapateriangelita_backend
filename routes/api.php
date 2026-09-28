@@ -141,6 +141,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::post('/logout', [AuthController::class, 'logout']);
+    Route::post('/user/change-password', [UserController::class, 'changePassword']);
     Route::post('/user/change-temporary-password', [UserController::class, 'changeTemporaryPassword']);
 
     // Vinculación explícita de Google desde una sesión ya autenticada.
