@@ -28,6 +28,7 @@ class GoogleAuthController extends Controller
         return response()->json([
             'enabled' => $clientId !== '',
             'client_id' => $clientId !== '' ? $clientId : null,
+            'status' => $clientId !== '' ? 'ready' : 'missing',
         ]);
     }
 

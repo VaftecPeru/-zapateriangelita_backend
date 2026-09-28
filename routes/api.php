@@ -35,7 +35,7 @@ Route::get('/health', HealthController::class);
 Route::middleware('throttle:60,1')
     ->post('/register', [AuthController::class, 'register']);
 
-Route::middleware('throttle:60,1')
+Route::middleware('login.throttle')
     ->post('/login', [AuthController::class, 'login']);
 
 // Google Identity Services. El client_id es público y se entrega al frontend en tiempo de ejecución.
@@ -91,7 +91,7 @@ Route::middleware('throttle:100,1')->group(function () {
 Route::get('/openpay/config', [
     OpenpayController::class,
     'config',
-]);
+])->middleware('throttle:30,1');
 
 // Openpay: recepción de notificaciones del proveedor.
 Route::post('/openpay/webhook', [
@@ -141,6 +141,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::post('/logout', [AuthController::class, 'logout']);
+    Route::post('/user/change-password', [UserController::class, 'changePassword']);
     Route::post('/user/change-temporary-password', [UserController::class, 'changeTemporaryPassword']);
 
     // Vinculación explícita de Google desde una sesión ya autenticada.
