@@ -159,6 +159,78 @@ class UserController extends Controller
         ]);
     }
 
+    public function changePassword(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'current_password' => ['required', 'string', 'max:255'],
+            'password' => [
+                'required',
+                'string',
+                'min:8',
+                'regex:/[A-Z]/',
+                'regex:/[a-z]/',
+                'regex:/[0-9]/',
+                'different:current_password',
+                'confirmed',
+            ],
+        ], [
+            'password.regex' => 'La contraseña debe incluir mayúsculas, minúsculas y números.',
+            'password.different' => 'La nueva contraseña debe ser diferente de la contraseña actual.',
+        ]);
+
+        $user = $request->user();
+
+        if ($user->must_change_password) {
+            return response()->json([
+                'message' => 'Primero debes reemplazar la contraseña temporal asignada a tu cuenta.',
+                'error_code' => 'TEMPORARY_PASSWORD_CHANGE_REQUIRED',
+            ], 422);
+        }
+
+        if (!Hash::check($validated['current_password'], (string) $user->password)) {
+            return response()->json([
+                'message' => 'La contraseña actual no es correcta.',
+                'errors' => [
+                    'current_password' => ['La contraseña actual no es correcta.'],
+                ],
+            ], 422);
+        }
+
+        $user->forceFill([
+            'password' => Hash::make($validated['password']),
+            'temporary_password_set_at' => null,
+        ])->save();
+
+        // Mantener la sesión actual y revocar cualquier otra sesión activa.
+        $currentToken = $user->currentAccessToken();
+        $user->tokens()
+            ->when($currentToken, fn ($query) => $query->where('id', '!=', $currentToken->id))
+            ->delete();
+
+        PasswordResetAudit::create([
+            'user_id' => $user->id,
+            'admin_id' => null,
+            'action' => 'user_changed_password',
+            'ip_address' => $request->ip(),
+        ]);
+
+        try {
+            Mail::to($user->email)->send(new PasswordChangedMail($user, 'password_changed'));
+        } catch (\Throwable $e) {
+            Log::warning('PASSWORD_CHANGED_EMAIL_FAILED', [
+                'user_id' => $user->id,
+                'exception' => get_class($e),
+                'message' => $e->getMessage(),
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Contraseña actualizada correctamente.',
+            'user' => $user->fresh(),
+        ]);
+    }
+
     public function updateRole(Request $request, string $id): JsonResponse
     {
         $actor = $request->user();
