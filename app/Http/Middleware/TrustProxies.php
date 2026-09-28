@@ -27,7 +27,7 @@ class TrustProxies extends Middleware
 
     public function __construct()
     {
-        $configured = trim((string) env('TRUSTED_PROXIES', ''));
+        $configured = trim((string) config('network.trusted_proxies', ''));
 
         if ($configured === '') {
             $this->proxies = null;
