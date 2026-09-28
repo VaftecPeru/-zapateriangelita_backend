@@ -35,7 +35,7 @@ Route::get('/health', HealthController::class);
 Route::middleware('throttle:60,1')
     ->post('/register', [AuthController::class, 'register']);
 
-Route::middleware('throttle:60,1')
+Route::middleware('login.throttle')
     ->post('/login', [AuthController::class, 'login']);
 
 // Google Identity Services. El client_id es público y se entrega al frontend en tiempo de ejecución.
