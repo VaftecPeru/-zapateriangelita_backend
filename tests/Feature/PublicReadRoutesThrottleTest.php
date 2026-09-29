@@ -23,7 +23,12 @@ class PublicReadRoutesThrottleTest extends TestCase
         $middleware = $route->gatherMiddleware();
 
         $this->assertFalse(
-            collect($middleware)->contains(fn ($item) => str_starts_with((string) $item, 'throttle:')),
+            collect($middleware)->contains(function ($item) {
+                $value = (string) $item;
+
+                return str_starts_with($value, 'throttle:')
+                    || str_contains($value, 'ThrottleRequests');
+            }),
             "{$method} {$uri} no debe depender de throttle por IP compartida."
         );
     }
@@ -41,6 +46,7 @@ class PublicReadRoutesThrottleTest extends TestCase
             ['GET', 'api/auth/google/config'],
             ['GET', 'api/openpay/config'],
             ['GET', 'api/media/{path}'],
+            ['GET', 'api/products/{product}/reviews'],
         ];
     }
 }
