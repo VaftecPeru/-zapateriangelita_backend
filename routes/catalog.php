@@ -4,9 +4,8 @@ use App\Http\Controllers\BrandController;
 use App\Http\Controllers\ReviewController;
 use Illuminate\Support\Facades\Route;
 
-// Reseñas públicas de producto.
-Route::middleware('throttle:100,1')
-    ->get('/products/{product}/reviews', [ReviewController::class, 'publicIndex']);
+// Reseñas públicas de producto: lectura sin throttle por IP compartida.
+Route::get('/products/{product}/reviews', [ReviewController::class, 'publicIndex']);
 
 // Marcas: lectura para usuario autenticado y mantenimiento para administrador.
 Route::middleware('auth:sanctum')->group(function () {
