@@ -33,6 +33,49 @@ class PublicReadRoutesThrottleTest extends TestCase
         );
     }
 
+    /**
+     * @dataProvider protectedWriteRoutes
+     */
+    public function test_sensitive_public_writes_keep_rate_limiting(string $method, string $uri): void
+    {
+        $route = collect(Route::getRoutes())
+            ->first(fn ($candidate) =>
+                in_array($method, $candidate->methods(), true)
+                && $candidate->uri() === $uri
+            );
+
+        $this->assertNotNull($route, "No se encontró la ruta {$method} {$uri}");
+
+        $middleware = $route->gatherMiddleware();
+
+        $this->assertTrue(
+            collect($middleware)->contains(function ($item) {
+                $value = (string) $item;
+
+                return str_starts_with($value, 'throttle:')
+                    || str_contains($value, 'ThrottleRequests')
+                    || $value === 'login.throttle';
+            }),
+            "{$method} {$uri} debe conservar protección contra abuso."
+        );
+    }
+
+    public static function protectedWriteRoutes(): array
+    {
+        return [
+            ['POST', 'api/register'],
+            ['POST', 'api/login'],
+            ['POST', 'api/auth/google/login'],
+            ['POST', 'api/forgot-password'],
+            ['POST', 'api/reset-password'],
+            ['POST', 'api/leads'],
+            ['POST', 'api/newsletter/subscribe'],
+            ['POST', 'api/interactions'],
+            ['POST', 'api/checkout/orders'],
+            ['POST', 'api/checkout/payments/openpay/charge'],
+        ];
+    }
+
     public static function publicReadRoutes(): array
     {
         return [
