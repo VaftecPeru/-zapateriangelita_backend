@@ -17,10 +17,6 @@ class RouteServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        RateLimiter::for('api', function (Request $request) {
-            return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
-        });
-
         // El checkout usa límites independientes por endpoint. De esta forma
         // los reintentos de verificación 3D Secure no consumen el mismo contador
         // que crear el pedido o iniciar el cobro.
