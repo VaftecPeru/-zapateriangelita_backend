@@ -57,41 +57,39 @@ Route::get('/login', function () {
     ], 401);
 })->name('login');
 
-// Imágenes persistentes de catálogo. No depende de public/storage ni de symlinks de cPanel.
-Route::middleware('throttle:240,1')
-    ->get('/media/{path}', [MediaController::class, 'show'])
+// Lecturas públicas del catálogo. No usan throttle por IP porque el hosting
+// puede estar detrás de un proxy compartido y provocar falsos 429 para clientes legítimos.
+Route::get('/media/{path}', [MediaController::class, 'show'])
     ->where('path', '.*');
 
-// Rutas públicas
+Route::get('/products', [ProductController::class, 'index']);
+Route::get('/products/{product}', [ProductController::class, 'show']);
+Route::get('/services', [AdditionalServiceController::class, 'index']);
+Route::get('/checkout/delivery-cost', [AdditionalServiceController::class, 'delivery']);
+Route::get('/settings', [SettingController::class, 'index']);
+
+Route::get('/public/categories', [
+    CategoryController::class,
+    'publicIndex',
+]);
+
+Route::get('/public/subcategories', [
+    SubcategoryController::class,
+    'publicIndex',
+]);
+
+// Escrituras públicas: conservan protección frente a abuso.
 Route::middleware('throttle:100,1')->group(function () {
-    Route::get('/products', [ProductController::class, 'index']);
-    Route::get('/products/{product}', [ProductController::class, 'show']);
-
-    Route::get('/services', [AdditionalServiceController::class, 'index']);
-    Route::get('/checkout/delivery-cost', [AdditionalServiceController::class, 'delivery']);
-
     Route::post('/leads', [LeadController::class, 'store']);
-
-    Route::get('/settings', [SettingController::class, 'index']);
     Route::post('/newsletter/subscribe', [NewsletterController::class, 'subscribe']);
     Route::post('/interactions', [InteractionController::class, 'store']);
-
-    Route::get('/public/categories', [
-        CategoryController::class,
-        'publicIndex',
-    ]);
-
-    Route::get('/public/subcategories', [
-        SubcategoryController::class,
-        'publicIndex',
-    ]);
 });
 
-// Openpay: configuración pública.
+// Openpay: configuración pública de solo lectura. El preflight se cachea en backend.
 Route::get('/openpay/config', [
     OpenpayController::class,
     'config',
-])->middleware('throttle:30,1');
+]);
 
 // Openpay: recepción de notificaciones del proveedor.
 Route::post('/openpay/webhook', [
