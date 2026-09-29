@@ -39,7 +39,9 @@ class Kernel extends HttpKernel
         ],
 
         'api' => [
-            \Illuminate\Routing\Middleware\ThrottleRequests::class.':300,1',
+            // Los límites de abuso se aplican explícitamente por ruta.
+            // Evitamos un throttle global por IP porque el hosting/proxy
+            // compartido puede hacer que clientes legítimos compartan contador.
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
         ],
     ];
