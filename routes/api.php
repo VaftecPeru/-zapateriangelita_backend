@@ -39,8 +39,8 @@ Route::middleware('login.throttle')
     ->post('/login', [AuthController::class, 'login']);
 
 // Google Identity Services. El client_id es público y se entrega al frontend en tiempo de ejecución.
-Route::middleware('throttle:60,1')
-    ->get('/auth/google/config', [GoogleAuthController::class, 'config']);
+// Este endpoint de solo lectura no usa throttle por IP para evitar falsos 429 detrás de proxies/hosting compartido.
+Route::get('/auth/google/config', [GoogleAuthController::class, 'config']);
 
 Route::middleware('throttle:20,1')
     ->post('/auth/google/login', [GoogleAuthController::class, 'login']);
