@@ -65,8 +65,8 @@ class InventoryController extends Controller
 
         return response()->json([
             'summary' => [
-                'total_stock' => (int) Product::sum('stock'),
-                'available' => $collection->where('stock', '>', self::LOW_STOCK_THRESHOLD)->count(),
+                'total_stock' => (int) $collection->sum('stock'),
+                'available' => $collection->where('stock', '>', 0)->count(),
                 'low_stock' => $collection->whereBetween('stock', [1, self::LOW_STOCK_THRESHOLD])->count(),
                 'out_of_stock' => $collection->where('stock', 0)->count(),
             ],
@@ -83,7 +83,7 @@ class InventoryController extends Controller
             'size' => ['nullable', 'string', 'max:10'],
             'type' => ['required', 'in:entrada,salida,ajuste'],
             'quantity' => ['required', 'integer', 'min:0'],
-            'reason' => ['nullable', 'string', 'max:255'],
+            'reason' => ['nullable', 'string', 'max:255', 'required_if:type,ajuste'],
         ]);
 
         if (
