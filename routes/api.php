@@ -27,6 +27,7 @@ use App\Http\Controllers\NewsletterController;
 use App\Http\Controllers\InteractionController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\InventoryExportController;
+use App\Http\Controllers\InventoryController;
 
 // Diagnóstico mínimo para cPanel. No usa throttle ni expone secretos.
 Route::get('/health', HealthController::class);
@@ -202,6 +203,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/products/{product}', [ProductController::class, 'update']);
 
         Route::delete('/products/{product}', [ProductController::class, 'destroy']);
+
+        // Gestión y trazabilidad de inventario
+        Route::get('/admin/inventory', [InventoryController::class, 'index']);
+        Route::get('/admin/inventory/movements', [InventoryController::class, 'movements']);
+        Route::post('/admin/inventory/adjust', [InventoryController::class, 'adjust']);
 
         // Exportación profesional del inventario actual (respeta filtros del catálogo)
         Route::get('/inventory/export/excel', [InventoryExportController::class, 'excel']);
