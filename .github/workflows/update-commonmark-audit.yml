@@ -1,0 +1,43 @@
+name: Temporary CommonMark security update
+
+on:
+  push:
+    branches:
+      - audit/inventory-carlos-clean-20261005
+
+permissions:
+  contents: write
+
+jobs:
+  update-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: audit/inventory-carlos-clean-20261005
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: composer:v2
+
+      - name: Update vulnerable CommonMark dependency
+        run: composer update league/commonmark --with-dependencies --no-interaction --no-progress --no-scripts
+
+      - name: Verify security audit
+        run: composer audit --locked
+
+      - name: Validate lock metadata
+        run: composer validate --strict --no-check-publish
+
+      - name: Commit updated lock
+        run: |
+          if git diff --quiet -- composer.lock; then
+            echo "composer.lock already secure"
+            exit 0
+          fi
+          git config user.name "VaftecPeru Security Bot"
+          git config user.email "vaftecperusac@gmail.com"
+          git add composer.lock
+          git commit -m "security: actualizar league/commonmark a versión corregida"
+          git push origin HEAD:audit/inventory-carlos-clean-20261005
