@@ -30,3 +30,7 @@ yarn-error.log
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Database backups must never be committed
+/backup_*.sql
+/*.dump
