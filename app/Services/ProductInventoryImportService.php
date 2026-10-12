@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Brand;
 use App\Models\Category;
+use App\Models\InventoryMovement;
 use App\Models\Product;
 use App\Models\ProductColor;
 use App\Models\ProductSize;
@@ -18,6 +19,7 @@ use ZipArchive;
 class ProductInventoryImportService
 {
     private const MAX_MEANINGFUL_ROWS = 5000;
+    private const MAX_XLSX_XML_BYTES = 25_000_000;
 
     private const REQUIRED_HEADERS = [
         'accion',
@@ -134,7 +136,7 @@ class ProductInventoryImportService
         );
     }
 
-    public function commit(UploadedFile $file): array
+    public function commit(UploadedFile $file, ?int $userId = null): array
     {
         // El endpoint de commit recibe el archivo original y lo vuelve a
         // interpretar/validar. Nunca se confía en la vista previa del navegador.
@@ -144,14 +146,14 @@ class ProductInventoryImportService
             throw new RuntimeException('El archivo contiene errores. Corrige la vista previa antes de importar.');
         }
 
-        $result = DB::transaction(function () use ($preview) {
+        $result = DB::transaction(function () use ($preview, $userId) {
             $created = 0;
             $updated = 0;
             $variants = 0;
             $units = 0;
 
             foreach ($preview['groups'] as $group) {
-                $product = $this->persistGroup($group);
+                $product = $this->persistGroup($group, $userId);
 
                 if ($group['action'] === 'CREAR') {
                     $created++;
@@ -236,13 +238,13 @@ class ProductInventoryImportService
         try {
             $sharedStrings = $this->readSharedStrings($zip);
             $sheetPath = $this->firstWorksheetPath($zip);
-            $sheetXml = $zip->getFromName($sheetPath);
+            $sheetXml = $this->readZipEntry($zip, $sheetPath);
 
             if ($sheetXml === false) {
                 throw new RuntimeException('El XLSX no contiene una hoja válida.');
             }
 
-            $xml = simplexml_load_string($sheetXml);
+            $xml = simplexml_load_string($sheetXml, SimpleXMLElement::class, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
             if (!$xml instanceof SimpleXMLElement) {
                 throw new RuntimeException('No se pudo interpretar la hoja del XLSX.');
             }
@@ -300,14 +302,37 @@ class ProductInventoryImportService
         }
     }
 
+    private function readZipEntry(ZipArchive $zip, string $path): string|false
+    {
+        $stat = $zip->statName($path);
+
+        if ($stat !== false && (int) ($stat['size'] ?? 0) > self::MAX_XLSX_XML_BYTES) {
+            throw new RuntimeException('El XLSX contiene una sección demasiado grande y fue bloqueado por seguridad.');
+        }
+
+        $content = $zip->getFromName($path);
+
+        if (is_string($content)) {
+            if (strlen($content) > self::MAX_XLSX_XML_BYTES) {
+                throw new RuntimeException('El XLSX excede el tamaño interno permitido.');
+            }
+
+            if (preg_match('/<!DOCTYPE|<!ENTITY/i', $content)) {
+                throw new RuntimeException('El XLSX contiene XML no permitido.');
+            }
+        }
+
+        return $content;
+    }
+
     private function readSharedStrings(ZipArchive $zip): array
     {
-        $content = $zip->getFromName('xl/sharedStrings.xml');
+        $content = $this->readZipEntry($zip, 'xl/sharedStrings.xml');
         if ($content === false) {
             return [];
         }
 
-        $xml = simplexml_load_string($content);
+        $xml = simplexml_load_string($content, SimpleXMLElement::class, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
         if (!$xml instanceof SimpleXMLElement) {
             return [];
         }
@@ -325,15 +350,15 @@ class ProductInventoryImportService
 
     private function firstWorksheetPath(ZipArchive $zip): string
     {
-        $workbookContent = $zip->getFromName('xl/workbook.xml');
-        $relationsContent = $zip->getFromName('xl/_rels/workbook.xml.rels');
+        $workbookContent = $this->readZipEntry($zip, 'xl/workbook.xml');
+        $relationsContent = $this->readZipEntry($zip, 'xl/_rels/workbook.xml.rels');
 
         if ($workbookContent === false || $relationsContent === false) {
             return 'xl/worksheets/sheet1.xml';
         }
 
-        $workbook = simplexml_load_string($workbookContent);
-        $relations = simplexml_load_string($relationsContent);
+        $workbook = simplexml_load_string($workbookContent, SimpleXMLElement::class, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+        $relations = simplexml_load_string($relationsContent, SimpleXMLElement::class, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
 
         if (!$workbook instanceof SimpleXMLElement || !$relations instanceof SimpleXMLElement) {
             return 'xl/worksheets/sheet1.xml';
@@ -801,11 +826,26 @@ class ProductInventoryImportService
         ];
     }
 
-    private function persistGroup(array $group): Product
+    private function persistGroup(array $group, ?int $userId): Product
     {
         $product = $group['action'] === 'ACTUALIZAR'
             ? Product::query()->whereRaw('LOWER(product_code) = ?', [mb_strtolower($group['code'])])->lockForUpdate()->firstOrFail()
             : new Product();
+
+        $productExisted = $product->exists;
+        $previousTotalStock = $productExisted ? (int) $product->stock : 0;
+        $hadVariantInventory = $productExisted && $product->variantStocks()->exists();
+        $previousVariants = [];
+
+        if ($hadVariantInventory) {
+            foreach ($product->variantStocks()->get(['color', 'size', 'stock']) as $variant) {
+                $previousVariants[$this->variantKey($variant->color, $variant->size)] = [
+                    'color' => (string) $variant->color,
+                    'size' => (string) $variant->size,
+                    'stock' => (int) $variant->stock,
+                ];
+            }
+        }
 
         $price = (float) $group['price'];
         $offerPrice = $group['offer_price'] !== null ? (float) $group['offer_price'] : null;
@@ -856,8 +896,88 @@ class ProductInventoryImportService
         $product->save();
 
         $this->replaceVariantInventory($product, $group['variants']);
+        $this->recordInventoryImportMovements(
+            $product,
+            $productExisted,
+            $hadVariantInventory,
+            $previousTotalStock,
+            $previousVariants,
+            $group['variants'],
+            $userId,
+            $group['action'],
+        );
 
         return $product->fresh();
+    }
+
+    private function recordInventoryImportMovements(
+        Product $product,
+        bool $productExisted,
+        bool $hadVariantInventory,
+        int $previousTotalStock,
+        array $previousVariants,
+        array $newVariants,
+        ?int $userId,
+        string $action,
+    ): void {
+        $reason = 'Importación masiva ' . $action . ' XLSX/CSV V1';
+
+        if ($productExisted && !$hadVariantInventory) {
+            $newTotalStock = array_sum(array_map(fn ($variant) => (int) $variant['stock'], $newVariants));
+
+            if ($previousTotalStock !== $newTotalStock) {
+                InventoryMovement::create([
+                    'product_id' => $product->id,
+                    'user_id' => $userId,
+                    'color' => null,
+                    'size' => null,
+                    'type' => 'ajuste',
+                    'quantity_change' => $newTotalStock - $previousTotalStock,
+                    'previous_stock' => $previousTotalStock,
+                    'new_stock' => $newTotalStock,
+                    'reason' => $reason,
+                ]);
+            }
+
+            return;
+        }
+
+        $newVariantMap = [];
+        foreach ($newVariants as $variant) {
+            $newVariantMap[$this->variantKey($variant['color'], $variant['size'])] = [
+                'color' => (string) $variant['color'],
+                'size' => (string) $variant['size'],
+                'stock' => (int) $variant['stock'],
+            ];
+        }
+
+        foreach (array_unique(array_merge(array_keys($previousVariants), array_keys($newVariantMap))) as $key) {
+            $before = $previousVariants[$key] ?? null;
+            $after = $newVariantMap[$key] ?? null;
+            $previousStock = (int) ($before['stock'] ?? 0);
+            $newStock = (int) ($after['stock'] ?? 0);
+
+            if ($previousStock === $newStock) {
+                continue;
+            }
+
+            InventoryMovement::create([
+                'product_id' => $product->id,
+                'user_id' => $userId,
+                'color' => (string) (($after['color'] ?? null) ?? ($before['color'] ?? '')),
+                'size' => (string) (($after['size'] ?? null) ?? ($before['size'] ?? '')),
+                'type' => 'ajuste',
+                'quantity_change' => $newStock - $previousStock,
+                'previous_stock' => $previousStock,
+                'new_stock' => $newStock,
+                'reason' => $reason,
+            ]);
+        }
+    }
+
+    private function variantKey(string $color, string $size): string
+    {
+        return $this->normalizeText($color) . '|' . $this->normalizeText($size);
     }
 
     private function replaceVariantInventory(Product $product, array $variants): void
