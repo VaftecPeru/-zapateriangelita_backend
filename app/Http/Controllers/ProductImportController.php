@@ -14,6 +14,22 @@ class ProductImportController extends Controller
     ) {
     }
 
+    public function template(): \Symfony\Component\HttpFoundation\Response
+    {
+        try {
+            $binary = $this->importer->template();
+
+            return response($binary, 200, [
+                'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'Content-Disposition' => 'attachment; filename="Plantilla_Importacion_Productos_Inventario_Zapateria_Angelita_V1.xlsx"',
+                'Cache-Control' => 'no-store, no-cache, must-revalidate',
+                'X-Content-Type-Options' => 'nosniff',
+            ]);
+        } catch (RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 500);
+        }
+    }
+
     public function preview(Request $request): JsonResponse
     {
         $file = $this->validatedFile($request);
