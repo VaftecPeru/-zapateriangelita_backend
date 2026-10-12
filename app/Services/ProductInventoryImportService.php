@@ -32,6 +32,97 @@ class ProductInventoryImportService
         'estado',
     ];
 
+    public function template(): string
+    {
+        if (!class_exists(ZipArchive::class)) {
+            throw new RuntimeException('El servidor no tiene habilitada la extensión ZIP requerida para generar XLSX.');
+        }
+
+        $path = tempnam(sys_get_temp_dir(), 'angelita_template_');
+        if ($path === false) {
+            throw new RuntimeException('No se pudo crear la plantilla temporal.');
+        }
+
+        $zip = new ZipArchive();
+        if ($zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+            @unlink($path);
+            throw new RuntimeException('No se pudo generar la plantilla XLSX.');
+        }
+
+        try {
+            $zip->addFromString('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?>'
+                . '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+                . '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+                . '<Default Extension="xml" ContentType="application/xml"/>'
+                . '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+                . '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+                . '</Types>');
+
+            $zip->addFromString('_rels/.rels', '<?xml version="1.0" encoding="UTF-8"?>'
+                . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                . '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+                . '</Relationships>');
+
+            $zip->addFromString('xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8"?>'
+                . '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+                . 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+                . '<sheets><sheet name="IMPORTAR_PRODUCTOS" sheetId="1" r:id="rId1"/></sheets>'
+                . '</workbook>');
+
+            $zip->addFromString('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8"?>'
+                . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                . '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+                . '</Relationships>');
+
+            $rows = [
+                ['ZAPATERÍA ANGELITA — PLANTILLA DE IMPORTACIÓN DE PRODUCTOS E INVENTARIO'],
+                ['Propuesta V1 · Una fila = una variante de producto (color + talla). El mismo código puede repetirse.'],
+                [],
+                [
+                    'ACCIÓN*', 'CÓDIGO_PRODUCTO*', 'NOMBRE*', 'MODELO', 'MARCA*',
+                    'CATEGORÍA*', 'SUBCATEGORÍA', 'PRECIO*', 'PRECIO_OFERTA', 'MATERIAL',
+                    'COLOR*', 'TALLA*', 'STOCK*', 'DESCRIPCIÓN', 'IMAGEN_PRINCIPAL',
+                    'IMAGEN_2', 'IMAGEN_3', 'ESTADO*', 'OBSERVACIONES', 'VALIDACIÓN',
+                ],
+            ];
+
+            $sheet = '<?xml version="1.0" encoding="UTF-8"?>'
+                . '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>';
+
+            foreach ($rows as $rowIndex => $values) {
+                $rowNumber = $rowIndex + 1;
+                $sheet .= '<row r="' . $rowNumber . '">';
+
+                foreach ($values as $columnIndex => $value) {
+                    if ($value === '') {
+                        continue;
+                    }
+
+                    $reference = $this->columnLetters($columnIndex + 1) . $rowNumber;
+                    $sheet .= '<c r="' . $reference . '" t="inlineStr"><is><t>'
+                        . htmlspecialchars($value, ENT_QUOTES | ENT_XML1, 'UTF-8')
+                        . '</t></is></c>';
+                }
+
+                $sheet .= '</row>';
+            }
+
+            $sheet .= '</sheetData></worksheet>';
+            $zip->addFromString('xl/worksheets/sheet1.xml', $sheet);
+        } finally {
+            $zip->close();
+        }
+
+        $binary = file_get_contents($path);
+        @unlink($path);
+
+        if ($binary === false) {
+            throw new RuntimeException('No se pudo leer la plantilla generada.');
+        }
+
+        return $binary;
+    }
+
     public function preview(UploadedFile $file): array
     {
         $parsed = $this->readFile($file);
@@ -274,6 +365,19 @@ class ProductInventoryImportService
         }
 
         return 'xl/worksheets/sheet1.xml';
+    }
+
+    private function columnLetters(int $column): string
+    {
+        $letters = '';
+
+        while ($column > 0) {
+            $column--;
+            $letters = chr(65 + ($column % 26)) . $letters;
+            $column = intdiv($column, 26);
+        }
+
+        return $letters;
     }
 
     private function columnIndex(string $reference): int
