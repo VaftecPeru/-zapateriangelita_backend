@@ -72,6 +72,36 @@ class ProductInventoryImportTest extends TestCase
             ->assertJsonPath('groups.0.total_stock', 10);
     }
 
+    public function test_preview_detects_semicolon_csv_after_title_rows_and_quoted_newline(): void
+    {
+        $headers = implode(';', $this->headers());
+        $row = [
+            'CREAR', 'ZA-0009', 'Botín CSV', 'CSV-9', 'Angelita', 'Caballeros',
+            'Botines', '1099', '999', 'Piel', 'Café', '25', '4',
+            ""Descripción con\nsalto de línea"", '', '', '', 'ACTIVO', '', 'OK',
+        ];
+
+        $csv = "\xEF\xBB\xBFZAPATERÍA ANGELITA — IMPORTACIÓN CSV\n"
+            . "Propuesta V1\n\n"
+            . $headers . "\n"
+            . implode(';', $row) . "\n";
+
+        $file = UploadedFile::fake()->createWithContent('inventario.csv', $csv);
+
+        $response = $this->post('/api/admin/products/import/preview', ['file' => $file], [
+            'Accept' => 'application/json',
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('valid', true)
+            ->assertJsonPath('format', 'csv')
+            ->assertJsonPath('summary.products', 1)
+            ->assertJsonPath('summary.variants', 1)
+            ->assertJsonPath('groups.0.code', 'ZA-0009')
+            ->assertJsonPath('groups.0.total_stock', 4);
+    }
+
     public function test_preview_blocks_example_rows_and_duplicate_color_size_variant(): void
     {
         $file = $this->xlsx([
