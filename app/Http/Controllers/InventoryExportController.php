@@ -116,6 +116,7 @@ class InventoryExportController extends Controller
             'category_id' => ['nullable', 'integer', 'min:1'],
             'brand_id' => ['nullable', 'integer', 'min:1'],
             'stock_state' => ['nullable', 'in:available,low,out'],
+            'active_state' => ['nullable', 'in:active,inactive'],
         ]);
 
         $query = Product::query()
@@ -198,6 +199,12 @@ class InventoryExportController extends Controller
             $query->whereBetween('stock', [1, 5]);
         } elseif (($validated['stock_state'] ?? null) === 'out') {
             $query->where('stock', '<=', 0);
+        }
+
+        if (($validated['active_state'] ?? null) === 'active') {
+            $query->where('is_active', true);
+        } elseif (($validated['active_state'] ?? null) === 'inactive') {
+            $query->where('is_active', false);
         }
     }
 

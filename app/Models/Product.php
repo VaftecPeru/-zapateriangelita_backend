@@ -31,6 +31,7 @@ class Product extends Model
         'description',
         'discount',
         'status',
+        'is_active',
         'category_id',
         'subcategory_id',
     ];
@@ -44,6 +45,7 @@ class Product extends Model
         'images' => 'array',
         'color_images' => 'array',
         'color_sizes' => 'array',
+        'is_active' => 'boolean',
     ];
 
     
@@ -136,7 +138,7 @@ class Product extends Model
 
     public function getFormattedPrice(): string
     {
-        return 'S/ ' . number_format($this->price, 2);
+        return '$ ' . number_format($this->price, 2);
     }
 
     
@@ -145,6 +147,6 @@ class Product extends Model
         if (!$this->isOnSale()) {
             return null;
         }
-        return 'S/ ' . number_format($this->discounted_price, 2);
+        return '$ ' . number_format($this->discounted_price, 2);
     }
 }

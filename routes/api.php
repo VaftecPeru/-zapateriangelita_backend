@@ -9,6 +9,7 @@ use App\Http\Controllers\LeadController;
 use App\Http\Controllers\MediaController;
 use App\Http\Controllers\MailHealthController;
 use App\Http\Controllers\ProductController;
+use App\Http\Controllers\ProductImportController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\AdditionalServiceController;
 use App\Http\Controllers\StatsController;
@@ -196,6 +197,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // Administración
     Route::middleware('admin')->group(function () {
         // Productos
+        Route::get('/admin/products', [ProductController::class, 'adminIndex']);
+        Route::get('/admin/products/import/template', [ProductImportController::class, 'template']);
+        Route::post('/admin/products/import/preview', [ProductImportController::class, 'preview']);
+        Route::post('/admin/products/import/commit', [ProductImportController::class, 'commit']);
         Route::post('/products', [ProductController::class, 'store']);
         Route::put('/products/{product}', [ProductController::class, 'update']);
 
