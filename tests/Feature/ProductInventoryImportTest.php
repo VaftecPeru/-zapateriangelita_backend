@@ -134,6 +134,24 @@ class ProductInventoryImportTest extends TestCase
             'size' => '26',
             'stock' => 5,
         ]);
+        $this->assertDatabaseHas('inventory_movements', [
+            'product_id' => $product->id,
+            'color' => 'Café',
+            'size' => '25',
+            'type' => 'ajuste',
+            'previous_stock' => 0,
+            'new_stock' => 3,
+            'quantity_change' => 3,
+        ]);
+        $this->assertDatabaseHas('inventory_movements', [
+            'product_id' => $product->id,
+            'color' => 'Negro',
+            'size' => '25',
+            'type' => 'ajuste',
+            'previous_stock' => 0,
+            'new_stock' => 2,
+            'quantity_change' => 2,
+        ]);
     }
 
     public function test_update_requires_existing_code_and_replaces_variant_snapshot(): void
@@ -191,6 +209,24 @@ class ProductInventoryImportTest extends TestCase
             'color' => 'Café',
             'size' => '26',
             'stock' => 4,
+        ]);
+        $this->assertDatabaseHas('inventory_movements', [
+            'product_id' => $product->id,
+            'color' => 'Negro',
+            'size' => '25',
+            'type' => 'ajuste',
+            'previous_stock' => 7,
+            'new_stock' => 0,
+            'quantity_change' => -7,
+        ]);
+        $this->assertDatabaseHas('inventory_movements', [
+            'product_id' => $product->id,
+            'color' => 'Café',
+            'size' => '26',
+            'type' => 'ajuste',
+            'previous_stock' => 0,
+            'new_stock' => 4,
+            'quantity_change' => 4,
         ]);
 
         $this->getJson('/api/products?per_page=200')
