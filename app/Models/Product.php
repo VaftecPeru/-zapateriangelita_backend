@@ -31,6 +31,7 @@ class Product extends Model
         'description',
         'discount',
         'status',
+        'is_active',
         'category_id',
         'subcategory_id',
     ];
@@ -44,6 +45,7 @@ class Product extends Model
         'images' => 'array',
         'color_images' => 'array',
         'color_sizes' => 'array',
+        'is_active' => 'boolean',
     ];
 
     
