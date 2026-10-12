@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Services\ProductInventoryImportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 class ProductImportController extends Controller
@@ -48,12 +49,22 @@ class ProductImportController extends Controller
         $file = $this->validatedFile($request);
 
         try {
-            return response()->json($this->importer->commit($file));
+            return response()->json($this->importer->commit($file, $request->user()?->id));
         } catch (RuntimeException $e) {
             return response()->json([
                 'message' => $e->getMessage(),
                 'preview' => $this->safePreview($file),
             ], 422);
+        } catch (\Throwable $e) {
+            Log::error('Error inesperado al importar inventario', [
+                'user_id' => $request->user()?->id,
+                'file' => $file->getClientOriginalName(),
+                'exception' => $e,
+            ]);
+
+            return response()->json([
+                'message' => 'No se pudo completar la importación. No se aplicaron cambios parciales.',
+            ], 500);
         }
     }
 
