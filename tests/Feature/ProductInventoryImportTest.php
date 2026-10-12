@@ -268,6 +268,52 @@ class ProductInventoryImportTest extends TestCase
             ->assertJsonFragment(['product_code' => 'ZA-0200']);
     }
 
+    public function test_inventory_export_respects_active_state_filter(): void
+    {
+        $category = Category::where('name', 'Hombre')->firstOrFail();
+        $brand = Brand::where('name', 'Angelita')->firstOrFail();
+
+        Product::create([
+            'product_code' => 'ZA-ACTIVO',
+            'name' => 'Producto Visible',
+            'brand_id' => $brand->id,
+            'category_id' => $category->id,
+            'price' => 1000,
+            'stock' => 3,
+            'size' => '25',
+            'color' => 'Negro',
+            'material' => 'Piel',
+            'rating' => 0,
+            'reviews' => 0,
+            'status' => 'normal',
+            'is_active' => true,
+        ]);
+
+        Product::create([
+            'product_code' => 'ZA-INACTIVO',
+            'name' => 'Producto Oculto',
+            'brand_id' => $brand->id,
+            'category_id' => $category->id,
+            'price' => 1100,
+            'stock' => 4,
+            'size' => '26',
+            'color' => 'Café',
+            'material' => 'Piel',
+            'rating' => 0,
+            'reviews' => 0,
+            'status' => 'normal',
+            'is_active' => false,
+        ]);
+
+        $response = $this->get('/api/inventory/export/excel?active_state=inactive');
+
+        $response->assertOk();
+        $content = $response->getContent();
+
+        $this->assertStringContainsString('Producto Oculto', $content);
+        $this->assertStringNotContainsString('Producto Visible', $content);
+    }
+
     public function test_commit_rejects_whole_file_when_any_group_is_invalid(): void
     {
         $file = $this->xlsx([
