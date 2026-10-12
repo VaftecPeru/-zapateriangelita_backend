@@ -190,29 +190,55 @@ class ProductInventoryImportService
 
     private function readCsv(string $path): array
     {
-        $contents = file_get_contents($path);
-        if ($contents === false) {
+        $handle = fopen($path, 'rb');
+        if ($handle === false) {
             throw new RuntimeException('No se pudo leer el archivo CSV.');
         }
 
-        $contents = preg_replace('/^\xEF\xBB\xBF/', '', $contents) ?? $contents;
-        $lines = preg_split('/\r\n|\n|\r/', $contents) ?: [];
-        $lines = array_values(array_filter($lines, fn ($line) => trim((string) $line) !== ''));
+        try {
+            $sampleLines = [];
+            while (count($sampleLines) < 20 && ($line = fgets($handle)) !== false) {
+                if (trim($line) !== '') {
+                    $sampleLines[] = $line;
+                }
+            }
 
-        if (!$lines) {
-            throw new RuntimeException('El archivo está vacío.');
+            if (!$sampleLines) {
+                throw new RuntimeException('El archivo está vacío.');
+            }
+
+            $delimiter = $this->detectCsvDelimiter($sampleLines);
+            rewind($handle);
+
+            $rawRows = [];
+            $logicalRow = 0;
+
+            while (($values = fgetcsv($handle, 0, $delimiter)) !== false) {
+                $logicalRow++;
+
+                if ($logicalRow === 1 && isset($values[0])) {
+                    $values[0] = preg_replace('/^\\xEF\\xBB\\xBF/', '', (string) $values[0]) ?? (string) $values[0];
+                }
+
+                $row = [];
+                $hasContent = false;
+
+                foreach ($values as $column => $value) {
+                    $clean = trim((string) $value);
+                    $row[$column] = $clean;
+                    $hasContent = $hasContent || $clean !== '';
+                }
+
+                if ($hasContent) {
+                    $rawRows[] = ['row' => $logicalRow, 'cells' => $row];
+                }
+            }
+        } finally {
+            fclose($handle);
         }
 
-        $delimiter = substr_count($lines[0], ';') > substr_count($lines[0], ',') ? ';' : ',';
-        $rawRows = [];
-
-        foreach ($lines as $index => $line) {
-            $values = str_getcsv($line, $delimiter);
-            $row = [];
-            foreach ($values as $column => $value) {
-                $row[$column] = trim((string) $value);
-            }
-            $rawRows[] = ['row' => $index + 1, 'cells' => $row];
+        if (!$rawRows) {
+            throw new RuntimeException('El archivo está vacío.');
         }
 
         [$headerIndex, $headerMap] = $this->discoverHeader($rawRows);
@@ -222,6 +248,19 @@ class ProductInventoryImportService
             'header_row' => $rawRows[$headerIndex]['row'],
             'rows' => $this->associateRows($rawRows, $headerIndex, $headerMap),
         ];
+    }
+
+    private function detectCsvDelimiter(array $sampleLines): string
+    {
+        $scores = [',' => 0, ';' => 0];
+
+        foreach ($sampleLines as $line) {
+            foreach (array_keys($scores) as $delimiter) {
+                $scores[$delimiter] = max($scores[$delimiter], substr_count($line, $delimiter));
+            }
+        }
+
+        return $scores[';'] > $scores[','] ? ';' : ',';
     }
 
     private function readXlsx(string $path): array
