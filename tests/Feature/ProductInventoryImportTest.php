@@ -78,7 +78,7 @@ class ProductInventoryImportTest extends TestCase
         $row = [
             'CREAR', 'ZA-0009', 'Botín CSV', 'CSV-9', 'Angelita', 'Caballeros',
             'Botines', '1099', '999', 'Piel', 'Café', '25', '4',
-            ""Descripción con\nsalto de línea"", '', '', '', 'ACTIVO', '', 'OK',
+            '"Descripción con' . "\n" . 'salto de línea"', '', '', '', 'ACTIVO', '', 'OK',
         ];
 
         $csv = "\xEF\xBB\xBFZAPATERÍA ANGELITA — IMPORTACIÓN CSV\n"
