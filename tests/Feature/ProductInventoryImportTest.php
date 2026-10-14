@@ -170,10 +170,6 @@ class ProductInventoryImportTest extends TestCase
             'Accept' => 'application/json',
         ]);
 
-        if (!$response->isOk()) {
-            fwrite(STDERR, 'IMPORT_CREATE_DIAGNOSTIC=' . json_encode($response->json(), JSON_UNESCAPED_UNICODE) . PHP_EOL);
-        }
-
         $response
             ->assertOk()
             ->assertJsonPath('success', true)
