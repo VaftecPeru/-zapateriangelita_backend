@@ -511,8 +511,12 @@ class ProductController extends Controller
             });
             $product->load('sizes', 'colors', 'variantStocks');
             return response()->json($product, 201);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Error al crear el producto: ' . $e->getMessage()], 500);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return response()->json([
+                'error' => 'No se pudo crear el producto. Intenta nuevamente o revisa los logs del servidor.',
+            ], 500);
         }
     }
 
@@ -710,8 +714,12 @@ class ProductController extends Controller
             $product->refresh();
             $product->load('sizes', 'colors', 'variantStocks');
             return response()->json($product);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Error al actualizar el producto: ' . $e->getMessage()], 500);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return response()->json([
+                'error' => 'No se pudo actualizar el producto. Intenta nuevamente o revisa los logs del servidor.',
+            ], 500);
         }
     }
 
