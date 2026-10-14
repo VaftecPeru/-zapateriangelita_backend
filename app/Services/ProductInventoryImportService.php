@@ -945,11 +945,6 @@ class ProductInventoryImportService
             'color_sizes' => $group['color_sizes'] ?: null,
         ];
 
-        if (!$product->exists) {
-            $attributes['rating'] = 0;
-            $attributes['reviews'] = 0;
-        }
-
         if ($group['images']) {
             $attributes['img'] = $group['images'][0];
             $attributes['images'] = $group['images'];
