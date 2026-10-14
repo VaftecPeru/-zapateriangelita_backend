@@ -102,6 +102,37 @@ class ProductInventoryImportTest extends TestCase
             ->assertJsonPath('groups.0.total_stock', 4);
     }
 
+    public function test_preview_detects_semicolon_csv_when_quoted_data_contains_many_commas(): void
+    {
+        $headers = implode(';', $this->headers());
+        $description = '"' . implode(',', array_fill(0, 30, 'detalle')) . '"';
+        $row = [
+            'CREAR', 'ZA-0010', 'Botín CSV Comas', 'CSV-10', 'Angelita', 'Caballeros',
+            'Botines', '1099', '999', 'Piel', 'Café', '25', '4',
+            $description, '', '', '', 'ACTIVO', '', 'OK',
+        ];
+
+        $csv = "ZAPATERÍA ANGELITA — IMPORTACIÓN CSV\n"
+            . "Propuesta V1\n\n"
+            . $headers . "\n"
+            . implode(';', $row) . "\n";
+
+        $file = UploadedFile::fake()->createWithContent('inventario-con-comas.csv', $csv);
+
+        $response = $this->post('/api/admin/products/import/preview', ['file' => $file], [
+            'Accept' => 'application/json',
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('valid', true)
+            ->assertJsonPath('format', 'csv')
+            ->assertJsonPath('summary.products', 1)
+            ->assertJsonPath('summary.variants', 1)
+            ->assertJsonPath('groups.0.code', 'ZA-0010')
+            ->assertJsonPath('groups.0.total_stock', 4);
+    }
+
     public function test_preview_blocks_example_rows_and_duplicate_color_size_variant(): void
     {
         $file = $this->xlsx([

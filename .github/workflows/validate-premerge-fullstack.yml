@@ -10,19 +10,42 @@ on:
       - main
       - develop
       - 'feature/**'
+      - 'fix/**'
+      - 'audit/**'
+      - 'chore/**'
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   validate:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    timeout-minutes: 20
 
-      - uses: shivammathur/setup-php@v2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP 8.2
+        uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
           extensions: mbstring, intl, pdo_sqlite, bcmath, curl, openssl, fileinfo, zip
           tools: composer:v2
+          coverage: none
+
+      - name: Cache Composer downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer/files
+          key: ${{ runner.os }}-composer-${{ hashFiles('composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-composer-
 
       - name: Validate composer metadata
         run: composer validate --strict --no-check-publish
@@ -33,10 +56,21 @@ jobs:
       - name: Audit locked dependencies
         run: composer audit --locked
 
+      - name: Repository hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          forbidden="$(git ls-files '.env' 'bootstrap/cache/config.php' 'backup_*.sql' '*backup*.sql' | tr '\n' ' ')"
+          if [ -n "$forbidden" ]; then
+            echo "::error::Archivos sensibles/de respaldo versionados: $forbidden"
+            exit 1
+          fi
+
       - name: PHP syntax check
         run: find app routes config database tests -type f -name '*.php' -print0 | xargs -0 -n1 php -l
 
       - name: Prepare test environment
+        shell: bash
         run: |
           touch database/database.sqlite
           printf '%s\n' \
@@ -70,5 +104,17 @@ jobs:
       - name: Validate routes
         run: php artisan route:list
 
+      - name: Importer regression tests
+        run: php artisan test tests/Feature/ProductInventoryImportTest.php --stop-on-failure
+
       - name: Run backend test suite
-        run: vendor/bin/phpunit --testdox
+        run: php artisan test
+
+      - name: Upload Laravel logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: laravel-test-logs-${{ github.run_id }}
+          path: storage/logs/*.log
+          if-no-files-found: ignore
+          retention-days: 7
