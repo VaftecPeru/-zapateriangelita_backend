@@ -316,10 +316,12 @@ class ProductInventoryImportService
             $rawRows = [];
 
             foreach ($xml->xpath('//m:sheetData/m:row') ?: [] as $rowNode) {
+                $rowNode->registerXPathNamespace('m', 'http://schemas.openxmlformats.org/spreadsheetml/2006/main');
                 $rowNumber = (int) ($rowNode['r'] ?? (count($rawRows) + 1));
                 $cells = [];
 
                 foreach ($rowNode->xpath('./m:c') ?: [] as $cell) {
+                    $cell->registerXPathNamespace('m', 'http://schemas.openxmlformats.org/spreadsheetml/2006/main');
                     $reference = (string) ($cell['r'] ?? '');
                     $columnIndex = $this->columnIndex($reference);
                     if ($columnIndex < 0) {
@@ -404,6 +406,7 @@ class ProductInventoryImportService
         $strings = [];
 
         foreach ($xml->xpath('//m:si') ?: [] as $item) {
+            $item->registerXPathNamespace('m', 'http://schemas.openxmlformats.org/spreadsheetml/2006/main');
             $texts = $item->xpath('.//m:t') ?: [];
             $strings[] = implode('', array_map(fn ($text) => (string) $text, $texts));
         }
@@ -1216,6 +1219,21 @@ class ProductInventoryImportService
     private function normalizeText(string $value): string
     {
         $value = trim(mb_strtolower($value, 'UTF-8'));
+
+        // Normalización determinista para los caracteres latinos usados por
+        // las plantillas en español. iconv translitera de forma distinta
+        // según la plataforma (Linux/Windows), por lo que primero plegamos
+        // explícitamente los caracteres que forman parte de encabezados,
+        // categorías, colores y demás valores del dominio.
+        $value = strtr($value, [
+            'á' => 'a', 'à' => 'a', 'ä' => 'a', 'â' => 'a', 'ã' => 'a',
+            'é' => 'e', 'è' => 'e', 'ë' => 'e', 'ê' => 'e',
+            'í' => 'i', 'ì' => 'i', 'ï' => 'i', 'î' => 'i',
+            'ó' => 'o', 'ò' => 'o', 'ö' => 'o', 'ô' => 'o', 'õ' => 'o',
+            'ú' => 'u', 'ù' => 'u', 'ü' => 'u', 'û' => 'u',
+            'ñ' => 'n', 'ç' => 'c',
+        ]);
+
         $transliterated = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
         $value = $transliterated !== false ? $transliterated : $value;
         $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
