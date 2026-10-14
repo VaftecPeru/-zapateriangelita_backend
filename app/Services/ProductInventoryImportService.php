@@ -252,15 +252,39 @@ class ProductInventoryImportService
 
     private function detectCsvDelimiter(array $sampleLines): string
     {
-        $scores = [',' => 0, ';' => 0];
+        $bestDelimiter = ',';
+        $bestHeaderMatches = -1;
+        $bestColumnCount = -1;
 
-        foreach ($sampleLines as $line) {
-            foreach (array_keys($scores) as $delimiter) {
-                $scores[$delimiter] = max($scores[$delimiter], substr_count($line, $delimiter));
+        foreach ([',', ';'] as $delimiter) {
+            $headerMatches = 0;
+            $maxColumnCount = 0;
+
+            foreach ($sampleLines as $line) {
+                $values = str_getcsv($line, $delimiter);
+                $maxColumnCount = max($maxColumnCount, count($values));
+
+                $matches = 0;
+                foreach ($values as $value) {
+                    if ($this->canonicalHeader($value) !== null) {
+                        $matches++;
+                    }
+                }
+
+                $headerMatches = max($headerMatches, $matches);
+            }
+
+            if (
+                $headerMatches > $bestHeaderMatches
+                || ($headerMatches === $bestHeaderMatches && $maxColumnCount > $bestColumnCount)
+            ) {
+                $bestDelimiter = $delimiter;
+                $bestHeaderMatches = $headerMatches;
+                $bestColumnCount = $maxColumnCount;
             }
         }
 
-        return $scores[';'] > $scores[','] ? ';' : ',';
+        return $bestDelimiter;
     }
 
     private function readXlsx(string $path): array
