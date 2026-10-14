@@ -230,8 +230,6 @@ class ProductInventoryImportTest extends TestCase
             'size' => '25',
             'color' => 'Negro',
             'material' => 'Piel',
-            'rating' => 0,
-            'reviews' => 0,
             'status' => 'normal',
             'is_active' => true,
         ]);
@@ -314,8 +312,6 @@ class ProductInventoryImportTest extends TestCase
             'size' => '25',
             'color' => 'Negro',
             'material' => 'Piel',
-            'rating' => 0,
-            'reviews' => 0,
             'status' => 'normal',
             'is_active' => true,
         ]);
@@ -330,8 +326,6 @@ class ProductInventoryImportTest extends TestCase
             'size' => '26',
             'color' => 'Café',
             'material' => 'Piel',
-            'rating' => 0,
-            'reviews' => 0,
             'status' => 'normal',
             'is_active' => false,
         ]);
