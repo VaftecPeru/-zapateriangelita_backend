@@ -312,14 +312,17 @@ class ProductInventoryImportService
                 throw new RuntimeException('No se pudo interpretar la hoja del XLSX.');
             }
 
-            $xml->registerXPathNamespace('m', 'http://schemas.openxmlformats.org/spreadsheetml/2006/main');
+            $namespace = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+            $xml->registerXPathNamespace('m', $namespace);
             $rawRows = [];
 
             foreach ($xml->xpath('//m:sheetData/m:row') ?: [] as $rowNode) {
+                $rowNode->registerXPathNamespace('m', $namespace);
                 $rowNumber = (int) ($rowNode['r'] ?? (count($rawRows) + 1));
                 $cells = [];
 
                 foreach ($rowNode->xpath('./m:c') ?: [] as $cell) {
+                    $cell->registerXPathNamespace('m', $namespace);
                     $reference = (string) ($cell['r'] ?? '');
                     $columnIndex = $this->columnIndex($reference);
                     if ($columnIndex < 0) {
@@ -400,10 +403,12 @@ class ProductInventoryImportService
             return [];
         }
 
-        $xml->registerXPathNamespace('m', 'http://schemas.openxmlformats.org/spreadsheetml/2006/main');
+        $namespace = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+        $xml->registerXPathNamespace('m', $namespace);
         $strings = [];
 
         foreach ($xml->xpath('//m:si') ?: [] as $item) {
+            $item->registerXPathNamespace('m', $namespace);
             $texts = $item->xpath('.//m:t') ?: [];
             $strings[] = implode('', array_map(fn ($text) => (string) $text, $texts));
         }
