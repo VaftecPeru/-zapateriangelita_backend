@@ -12,6 +12,7 @@ use App\Models\ProductVariantStock;
 use App\Models\Subcategory;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use RuntimeException;
 use SimpleXMLElement;
 use ZipArchive;
@@ -1216,7 +1217,7 @@ class ProductInventoryImportService
     private function normalizeText(string $value): string
     {
         $value = trim(mb_strtolower($value, 'UTF-8'));
-        $transliterated = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
+        $transliterated = Str::ascii($value);
         $value = $transliterated !== false ? $transliterated : $value;
         $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
 
