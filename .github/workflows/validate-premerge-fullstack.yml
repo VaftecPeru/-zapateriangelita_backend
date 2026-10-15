@@ -9,19 +9,26 @@ on:
     branches:
       - main
       - develop
-      - 'feature/**'
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
-          extensions: mbstring, intl, pdo_sqlite, bcmath, curl, openssl, fileinfo, zip
+          extensions: mbstring, intl, pdo_sqlite, bcmath, curl, openssl, fileinfo, zip, gd
           tools: composer:v2
 
       - name: Validate composer metadata

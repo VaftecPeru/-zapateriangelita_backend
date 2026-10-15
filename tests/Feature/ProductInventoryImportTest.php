@@ -133,6 +133,67 @@ class ProductInventoryImportTest extends TestCase
             ->assertJsonPath('groups.0.total_stock', 4);
     }
 
+    public function test_preview_inherits_general_fields_and_normalizes_flexi_dama(): void
+    {
+        $this->assertNotNull(Brand::whereRaw('LOWER(name) = ?', ['flexi'])->first());
+
+        $file = $this->xlsx([
+            $this->headers(),
+            ['CREAR', 'ZA-FLEXI-01', 'Huarache Flexi Dama', 'HF-01', 'FLEXI DAMA', 'huarrache', '', '$1,299.00', '', 'Piel', 'Beige', '23', '2', '', '', '', '', 'ACTIVO', '', 'OK'],
+            ['', 'ZA-FLEXI-01', '', '', '', '', '', '', '', '', 'Beige', '24', '3', '', '', '', '', '', '', 'OK'],
+        ]);
+
+        $response = $this->post('/api/admin/products/import/preview', ['file' => $file], [
+            'Accept' => 'application/json',
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('valid', true)
+            ->assertJsonPath('summary.error_rows', 0)
+            ->assertJsonPath('rows.1.action', 'CREAR')
+            ->assertJsonPath('rows.1.name', 'Huarache Flexi Dama')
+            ->assertJsonPath('rows.1.price', 1299)
+            ->assertJsonPath('groups.0.brand', 'flexi')
+            ->assertJsonPath('groups.0.category', 'Huarache')
+            ->assertJsonPath('groups.0.total_stock', 5);
+
+        $warnings = implode(' | ', $response->json('rows.0.warnings'));
+        $this->assertStringContainsString('Se creará la categoría', $warnings);
+        $this->assertStringContainsString('Marca normalizada', $warnings);
+    }
+
+    public function test_commit_creates_unknown_category_without_blocking_import(): void
+    {
+        $brand = Brand::whereRaw('LOWER(name) = ?', ['flexi'])->firstOrFail();
+
+        $file = $this->xlsx([
+            $this->headers(),
+            ['CREAR', 'ZA-FLEXI-02', 'Huarache Flexi Dama', 'HF-02', 'FLEXI DAMA', 'huarrache', '', '1499', '', 'Piel', 'Negro', '24', '4', '', '', '', '', 'ACTIVO', '', 'OK'],
+            ['', 'ZA-FLEXI-02', '', '', '', '', '', '', '', '', 'Negro', '25', '2', '', '', '', '', '', '', 'OK'],
+        ]);
+
+        $response = $this->post('/api/admin/products/import/commit', ['file' => $file], [
+            'Accept' => 'application/json',
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('summary.created', 1)
+            ->assertJsonPath('summary.variants', 2)
+            ->assertJsonPath('summary.units', 6);
+
+        $category = Category::where('slug', 'huarache')->firstOrFail();
+        $product = Product::where('product_code', 'ZA-FLEXI-02')->firstOrFail();
+
+        $this->assertSame($brand->id, $product->brand_id);
+        $this->assertSame($category->id, $product->category_id);
+        $this->assertSame('Huarache', $category->name);
+        $this->assertSame('1499.00', (string) $product->price);
+        $this->assertSame(6, (int) $product->stock);
+    }
+
     public function test_preview_blocks_example_rows_and_duplicate_color_size_variant(): void
     {
         $file = $this->xlsx([
@@ -364,7 +425,7 @@ class ProductInventoryImportTest extends TestCase
             'NOMBRE*',
             'MODELO',
             'MARCA*',
-            'CATEGORÍA*',
+            'CATEGORÍA',
             'SUBCATEGORÍA',
             'PRECIO*',
             'PRECIO_OFERTA',
