@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Schema;
 
 class Product extends Model
 {
@@ -44,7 +45,26 @@ class Product extends Model
         'is_active' => 'boolean',
     ];
 
-    
+    protected static function booted(): void
+    {
+        static::creating(function (Product $product): void {
+            $table = $product->getTable();
+            $attributes = $product->getAttributes();
+
+            // La BD histórica de producción conserva rating/reviews como NOT NULL
+            // sin valor por defecto. Los flujos actuales ya no los capturan, así que
+            // mantenemos compatibilidad hasta que la migración normalice el esquema.
+            // Usamos el arreglo crudo porque `reviews` también es una relación Eloquent.
+            if (Schema::hasColumn($table, 'rating') && !array_key_exists('rating', $attributes)) {
+                $product->setAttribute('rating', 0);
+            }
+
+            if (Schema::hasColumn($table, 'reviews') && !array_key_exists('reviews', $attributes)) {
+                $product->setAttribute('reviews', 0);
+            }
+        });
+    }
+
     public function brand()
     {
         return $this->belongsTo(Brand::class);
