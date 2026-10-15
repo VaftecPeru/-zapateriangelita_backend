@@ -135,11 +135,7 @@ class ProductInventoryImportTest extends TestCase
 
     public function test_preview_inherits_general_fields_and_normalizes_flexi_dama(): void
     {
-        Brand::create([
-            'name' => 'flexi',
-            'slug' => 'flexi',
-            'is_active' => true,
-        ]);
+        $this->assertNotNull(Brand::whereRaw('LOWER(name) = ?', ['flexi'])->first());
 
         $file = $this->xlsx([
             $this->headers(),
@@ -169,11 +165,7 @@ class ProductInventoryImportTest extends TestCase
 
     public function test_commit_creates_unknown_category_without_blocking_import(): void
     {
-        $brand = Brand::create([
-            'name' => 'flexi',
-            'slug' => 'flexi',
-            'is_active' => true,
-        ]);
+        $brand = Brand::whereRaw('LOWER(name) = ?', ['flexi'])->firstOrFail();
 
         $file = $this->xlsx([
             $this->headers(),
