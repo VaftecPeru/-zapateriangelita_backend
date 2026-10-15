@@ -1216,6 +1216,19 @@ class ProductInventoryImportService
     private function normalizeText(string $value): string
     {
         $value = trim(mb_strtolower($value, 'UTF-8'));
+
+        // Normalización determinista para caracteres latinos usados por las
+        // plantillas en español. iconv puede transliterar distinto según la
+        // plataforma, por lo que plegamos primero los caracteres del dominio.
+        $value = strtr($value, [
+            'á' => 'a', 'à' => 'a', 'ä' => 'a', 'â' => 'a', 'ã' => 'a',
+            'é' => 'e', 'è' => 'e', 'ë' => 'e', 'ê' => 'e',
+            'í' => 'i', 'ì' => 'i', 'ï' => 'i', 'î' => 'i',
+            'ó' => 'o', 'ò' => 'o', 'ö' => 'o', 'ô' => 'o', 'õ' => 'o',
+            'ú' => 'u', 'ù' => 'u', 'ü' => 'u', 'û' => 'u',
+            'ñ' => 'n', 'ç' => 'c',
+        ]);
+
         $transliterated = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
         $value = $transliterated !== false ? $transliterated : $value;
         $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
