@@ -133,6 +133,110 @@ class ProductInventoryImportTest extends TestCase
             ->assertJsonPath('groups.0.total_stock', 4);
     }
 
+    public function test_preview_accepts_file_without_category_header(): void
+    {
+        $headers = $this->headers();
+        $categoryIndex = array_search('CATEGORÍA', $headers, true);
+        $this->assertNotFalse($categoryIndex);
+        array_splice($headers, (int) $categoryIndex, 1);
+
+        $row = ['CREAR', 'ZA-NOCAT-00', 'Producto sin columna categoría', '', 'Angelita', '', '999', '', 'Piel', 'Negro', '25', '2', '', '', '', '', 'ACTIVO', '', 'OK'];
+
+        $file = $this->xlsx([
+            $headers,
+            $row,
+        ]);
+
+        $response = $this->post('/api/admin/products/import/preview', ['file' => $file], [
+            'Accept' => 'application/json',
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('valid', true)
+            ->assertJsonPath('summary.error_rows', 0)
+            ->assertJsonPath('groups.0.category_id', null);
+    }
+
+    public function test_preview_accepts_blank_category_without_red_error(): void
+    {
+        $file = $this->xlsx([
+            $this->headers(),
+            ['CREAR', 'ZA-NOCAT-01', 'Producto sin categoría', '', 'Angelita', '', '', '999', '', 'Piel', 'Negro', '25', '2', '', '', '', '', 'ACTIVO', '', 'OK'],
+        ]);
+
+        $response = $this->post('/api/admin/products/import/preview', ['file' => $file], [
+            'Accept' => 'application/json',
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('valid', true)
+            ->assertJsonPath('summary.error_rows', 0)
+            ->assertJsonPath('rows.0.category', '')
+            ->assertJsonPath('groups.0.category_id', null);
+    }
+
+    public function test_commit_creates_product_without_category(): void
+    {
+        $file = $this->xlsx([
+            $this->headers(),
+            ['CREAR', 'ZA-NOCAT-02', 'Producto importado sin categoría', '', 'Angelita', '', '', '1099', '', 'Piel', 'Café', '26', '4', '', '', '', '', 'ACTIVO', '', 'OK'],
+        ]);
+
+        $response = $this->post('/api/admin/products/import/commit', ['file' => $file], [
+            'Accept' => 'application/json',
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('summary.created', 1);
+
+        $product = Product::where('product_code', 'ZA-NOCAT-02')->firstOrFail();
+
+        $this->assertNull($product->category_id);
+        $this->assertNull($product->subcategory_id);
+        $this->assertSame(4, (int) $product->stock);
+    }
+
+    public function test_update_without_category_preserves_existing_taxonomy(): void
+    {
+        $category = Category::where('name', 'Hombre')->firstOrFail();
+        $subcategory = Subcategory::where('name', 'Botines')->firstOrFail();
+        $brand = Brand::where('name', 'Angelita')->firstOrFail();
+
+        Product::create([
+            'product_code' => 'ZA-NOCAT-03',
+            'name' => 'Producto existente',
+            'brand_id' => $brand->id,
+            'category_id' => $category->id,
+            'subcategory_id' => $subcategory->id,
+            'price' => 800,
+            'stock' => 2,
+            'size' => '25',
+            'color' => 'Negro',
+            'status' => 'normal',
+            'is_active' => true,
+        ]);
+
+        $file = $this->xlsx([
+            $this->headers(),
+            ['ACTUALIZAR', 'ZA-NOCAT-03', 'Producto existente actualizado', '', 'Angelita', '', '', '900', '', 'Piel', 'Negro', '25', '3', '', '', '', '', 'ACTIVO', '', 'OK'],
+        ]);
+
+        $response = $this->post('/api/admin/products/import/commit', ['file' => $file], [
+            'Accept' => 'application/json',
+        ]);
+
+        $response->assertOk();
+
+        $product = Product::where('product_code', 'ZA-NOCAT-03')->firstOrFail();
+
+        $this->assertSame($category->id, $product->category_id);
+        $this->assertSame($subcategory->id, $product->subcategory_id);
+    }
+
     public function test_preview_blocks_example_rows_and_duplicate_color_size_variant(): void
     {
         $file = $this->xlsx([
@@ -364,7 +468,7 @@ class ProductInventoryImportTest extends TestCase
             'NOMBRE*',
             'MODELO',
             'MARCA*',
-            'CATEGORÍA*',
+            'CATEGORÍA',
             'SUBCATEGORÍA',
             'PRECIO*',
             'PRECIO_OFERTA',
