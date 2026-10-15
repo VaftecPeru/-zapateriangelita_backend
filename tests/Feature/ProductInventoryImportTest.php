@@ -133,6 +133,31 @@ class ProductInventoryImportTest extends TestCase
             ->assertJsonPath('groups.0.total_stock', 4);
     }
 
+    public function test_preview_accepts_file_without_category_header(): void
+    {
+        $headers = $this->headers();
+        $categoryIndex = array_search('CATEGORÍA', $headers, true);
+        $this->assertNotFalse($categoryIndex);
+        array_splice($headers, (int) $categoryIndex, 1);
+
+        $row = ['CREAR', 'ZA-NOCAT-00', 'Producto sin columna categoría', '', 'Angelita', '', '999', '', 'Piel', 'Negro', '25', '2', '', '', '', '', 'ACTIVO', '', 'OK'];
+
+        $file = $this->xlsx([
+            $headers,
+            $row,
+        ]);
+
+        $response = $this->post('/api/admin/products/import/preview', ['file' => $file], [
+            'Accept' => 'application/json',
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('valid', true)
+            ->assertJsonPath('summary.error_rows', 0)
+            ->assertJsonPath('groups.0.category_id', null);
+    }
+
     public function test_preview_accepts_blank_category_without_red_error(): void
     {
         $file = $this->xlsx([
