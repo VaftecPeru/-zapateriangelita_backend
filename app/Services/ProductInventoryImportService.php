@@ -26,7 +26,6 @@ class ProductInventoryImportService
         'codigo_producto',
         'nombre',
         'marca',
-        'categoria',
         'precio',
         'color',
         'talla',
@@ -82,7 +81,7 @@ class ProductInventoryImportService
                 [],
                 [
                     'ACCIÓN*', 'CÓDIGO_PRODUCTO*', 'NOMBRE*', 'MODELO', 'MARCA*',
-                    'CATEGORÍA*', 'SUBCATEGORÍA', 'PRECIO*', 'PRECIO_OFERTA', 'MATERIAL',
+                    'CATEGORÍA', 'SUBCATEGORÍA', 'PRECIO*', 'PRECIO_OFERTA', 'MATERIAL',
                     'COLOR*', 'TALLA*', 'STOCK*', 'DESCRIPCIÓN', 'IMAGEN_PRINCIPAL',
                     'IMAGEN_2', 'IMAGEN_3', 'ESTADO*', 'OBSERVACIONES', 'VALIDACIÓN',
                 ],
@@ -508,7 +507,7 @@ class ProductInventoryImportService
         }
 
         throw new RuntimeException(
-            'No se encontró la fila de encabezados esperada. Verifica que la plantilla incluya ACCIÓN, CÓDIGO_PRODUCTO, NOMBRE, MARCA, CATEGORÍA, PRECIO, COLOR, TALLA, STOCK y ESTADO.'
+            'No se encontró la fila de encabezados esperada. Verifica que la plantilla incluya ACCIÓN, CÓDIGO_PRODUCTO, NOMBRE, MARCA, PRECIO, COLOR, TALLA, STOCK y ESTADO. CATEGORÍA es opcional.'
         );
     }
 
@@ -641,10 +640,11 @@ class ProductInventoryImportService
             }
 
             $categoryNormalized = $this->categoryAlias($categoryName);
-            $category = $categoryLookup->get($categoryNormalized);
-            if ($categoryName === '') {
-                $errors[] = 'CATEGORÍA es obligatoria';
-            } elseif (!$category) {
+            $category = $categoryName === ''
+                ? null
+                : $categoryLookup->get($categoryNormalized);
+
+            if ($categoryName !== '' && !$category) {
                 $errors[] = 'Categoría no registrada: ' . $categoryName;
             }
 
@@ -665,6 +665,8 @@ class ProductInventoryImportService
                 if (!$subcategory) {
                     $errors[] = 'Subcategoría no registrada para ' . $category->name . ': ' . $subcategoryName;
                 }
+            } elseif ($subcategoryName !== '' && !$category) {
+                $warnings[] = 'SUBCATEGORÍA se ignorará porque no se indicó CATEGORÍA';
             }
 
             if ($price === null || $price <= 0) {
@@ -930,8 +932,10 @@ class ProductInventoryImportService
             'name' => $group['name'],
             'model' => $group['model'] !== '' ? $group['model'] : null,
             'brand_id' => $group['brand_id'],
-            'category_id' => $group['category_id'],
-            'subcategory_id' => $group['subcategory_id'],
+            'category_id' => $group['category_id'] ?? ($product->exists ? $product->category_id : null),
+            'subcategory_id' => $group['category_id'] === null && $product->exists
+                ? $product->subcategory_id
+                : $group['subcategory_id'],
             'price' => $price,
             'discounted_price' => $offerPrice,
             'discount' => $discount,
