@@ -696,10 +696,11 @@ class ProductInventoryImportService
             } elseif (mb_strlen($color) > 50) {
                 $errors[] = 'COLOR supera 50 caracteres';
             }
+            // No imponer un límite artificial de 10 caracteres a las tallas importadas.
+            // La compatibilidad con las columnas de BD y el tratamiento de listas
+            // de tallas deben verificarse antes del despliegue a producción.
             if ($size === '') {
                 $errors[] = 'TALLA es obligatoria';
-            } elseif (mb_strlen($size) > 10) {
-                $errors[] = 'TALLA supera 10 caracteres';
             }
             if ($stock === null || $stock < 0) {
                 $errors[] = 'STOCK debe ser un entero mayor o igual a 0';
