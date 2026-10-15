@@ -12,6 +12,7 @@ use App\Models\ProductVariantStock;
 use App\Models\Subcategory;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use RuntimeException;
 use SimpleXMLElement;
 use ZipArchive;
@@ -26,7 +27,6 @@ class ProductInventoryImportService
         'codigo_producto',
         'nombre',
         'marca',
-        'categoria',
         'precio',
         'color',
         'talla',
@@ -82,7 +82,7 @@ class ProductInventoryImportService
                 [],
                 [
                     'ACCIÓN*', 'CÓDIGO_PRODUCTO*', 'NOMBRE*', 'MODELO', 'MARCA*',
-                    'CATEGORÍA*', 'SUBCATEGORÍA', 'PRECIO*', 'PRECIO_OFERTA', 'MATERIAL',
+                    'CATEGORÍA', 'SUBCATEGORÍA', 'PRECIO*', 'PRECIO_OFERTA', 'MATERIAL',
                     'COLOR*', 'TALLA*', 'STOCK*', 'DESCRIPCIÓN', 'IMAGEN_PRINCIPAL',
                     'IMAGEN_2', 'IMAGEN_3', 'ESTADO*', 'OBSERVACIONES', 'VALIDACIÓN',
                 ],
@@ -508,7 +508,7 @@ class ProductInventoryImportService
         }
 
         throw new RuntimeException(
-            'No se encontró la fila de encabezados esperada. Verifica que la plantilla incluya ACCIÓN, CÓDIGO_PRODUCTO, NOMBRE, MARCA, CATEGORÍA, PRECIO, COLOR, TALLA, STOCK y ESTADO.'
+            'No se encontró la fila de encabezados esperada. Verifica que la plantilla incluya ACCIÓN, CÓDIGO_PRODUCTO, NOMBRE, MARCA, PRECIO, COLOR, TALLA, STOCK y ESTADO. CATEGORÍA es opcional.'
         );
     }
 
@@ -584,6 +584,7 @@ class ProductInventoryImportService
             ->get(['id', 'product_code', 'status', 'img', 'images', 'color_images'])
             ->keyBy(fn ($product) => $this->normalizeText($product->product_code));
 
+        $groupDefaults = $this->generalDefaultsByCode($rows);
         $normalizedRows = [];
         $meaningfulCount = 0;
 
@@ -602,25 +603,33 @@ class ProductInventoryImportService
             $errors = [];
             $warnings = [];
 
-            $action = mb_strtoupper($this->normalizeText($raw['accion'] ?? ''));
-            $action = $action === 'CREATE' ? 'CREAR' : ($action === 'UPDATE' ? 'ACTUALIZAR' : $action);
             $code = trim((string) ($raw['codigo_producto'] ?? ''));
-            $name = trim((string) ($raw['nombre'] ?? ''));
-            $model = trim((string) ($raw['modelo'] ?? ''));
-            $brandName = trim((string) ($raw['marca'] ?? ''));
-            $categoryName = trim((string) ($raw['categoria'] ?? ''));
-            $subcategoryName = trim((string) ($raw['subcategoria'] ?? ''));
-            $material = trim((string) ($raw['material'] ?? ''));
+            $defaults = $code !== ''
+                ? ($groupDefaults[$this->normalizeText($code)] ?? [])
+                : [];
+            $generalValue = fn (string $field) => $this->valueOrDefault(
+                $raw[$field] ?? null,
+                $defaults[$field] ?? null,
+            );
+
+            $action = $this->normalizeAction($generalValue('accion'));
+            $name = trim((string) $generalValue('nombre'));
+            $model = trim((string) $generalValue('modelo'));
+            $brandName = trim((string) $generalValue('marca'));
+            $categoryName = $this->canonicalCategoryName(trim((string) $generalValue('categoria')));
+            $subcategoryName = trim((string) $generalValue('subcategoria'));
+            $material = trim((string) $generalValue('material'));
             $color = trim((string) ($raw['color'] ?? ''));
             $size = trim((string) ($raw['talla'] ?? ''));
-            $description = trim((string) ($raw['descripcion'] ?? ''));
+            $description = trim((string) $generalValue('descripcion'));
             $observations = trim((string) ($raw['observaciones'] ?? ''));
             $validation = trim((string) ($raw['validacion'] ?? ''));
-            $state = mb_strtoupper($this->normalizeText($raw['estado'] ?? ''));
+            $state = mb_strtoupper($this->normalizeText((string) $generalValue('estado')));
 
-            $price = $this->decimalValue($raw['precio'] ?? null);
-            $offerRaw = trim((string) ($raw['precio_oferta'] ?? ''));
-            $offerPrice = $offerRaw === '' ? null : $this->decimalValue($raw['precio_oferta'] ?? null);
+            $price = $this->decimalValue($generalValue('precio'));
+            $offerSource = $generalValue('precio_oferta');
+            $offerRaw = trim((string) ($offerSource ?? ''));
+            $offerPrice = $offerRaw === '' ? null : $this->decimalValue($offerSource);
             $stock = $this->integerValue($raw['stock'] ?? null);
 
             if (!in_array($action, ['CREAR', 'ACTUALIZAR'], true)) {
@@ -641,18 +650,20 @@ class ProductInventoryImportService
             }
 
             $categoryNormalized = $this->categoryAlias($categoryName);
-            $category = $categoryLookup->get($categoryNormalized);
-            if ($categoryName === '') {
-                $errors[] = 'CATEGORÍA es obligatoria';
-            } elseif (!$category) {
-                $errors[] = 'Categoría no registrada: ' . $categoryName;
+            $category = $categoryName === ''
+                ? null
+                : $categoryLookup->get($categoryNormalized);
+            if ($categoryName !== '' && !$category) {
+                $warnings[] = 'Se creará la categoría "' . $categoryName . '" al importar';
             }
 
-            $brand = $brandLookup->get($this->normalizeText($brandName));
+            $brand = $brandLookup->get($this->brandAlias($brandName));
             if ($brandName === '') {
                 $errors[] = 'MARCA es obligatoria';
             } elseif (!$brand) {
                 $errors[] = 'Marca no registrada: ' . $brandName;
+            } elseif ($this->normalizeText($brandName) !== $this->normalizeText($brand->name)) {
+                $warnings[] = 'Marca normalizada: ' . $brandName . ' → ' . $brand->name;
             }
 
             $subcategory = null;
@@ -663,8 +674,12 @@ class ProductInventoryImportService
                 );
 
                 if (!$subcategory) {
-                    $errors[] = 'Subcategoría no registrada para ' . $category->name . ': ' . $subcategoryName;
+                    $warnings[] = 'Se creará la subcategoría "' . $subcategoryName . '" dentro de ' . $category->name;
                 }
+            } elseif ($subcategoryName !== '' && $categoryName !== '') {
+                $warnings[] = 'Se creará la subcategoría "' . $subcategoryName . '" junto con la categoría ' . $categoryName;
+            } elseif ($subcategoryName !== '') {
+                $warnings[] = 'SUBCATEGORÍA se ignorará porque no se indicó CATEGORÍA';
             }
 
             if ($price === null || $price <= 0) {
@@ -720,7 +735,7 @@ class ProductInventoryImportService
                 'code' => $code,
                 'name' => $name,
                 'model' => $model,
-                'brand' => $brandName,
+                'brand' => $brand?->name ?? $brandName,
                 'brand_id' => $brand?->id,
                 'category' => $category?->name ?? $categoryName,
                 'category_id' => $category?->id,
@@ -925,13 +940,25 @@ class ProductInventoryImportService
             ? 'oferta'
             : (($product->exists && $product->status !== 'oferta') ? $product->status : 'normal');
 
+        $resolvedCategoryId = $this->resolveCategoryId(
+            $group['category'] ?? '',
+            $group['category_id'] ?? null,
+        );
+        $resolvedSubcategoryId = $this->resolveSubcategoryId(
+            $group['subcategory'] ?? '',
+            $group['subcategory_id'] ?? null,
+            $resolvedCategoryId,
+        );
+
         $attributes = [
             'product_code' => $group['code'],
             'name' => $group['name'],
             'model' => $group['model'] !== '' ? $group['model'] : null,
             'brand_id' => $group['brand_id'],
-            'category_id' => $group['category_id'],
-            'subcategory_id' => $group['subcategory_id'],
+            'category_id' => $resolvedCategoryId ?? ($product->exists ? $product->category_id : null),
+            'subcategory_id' => $resolvedCategoryId === null && $product->exists
+                ? $product->subcategory_id
+                : $resolvedSubcategoryId,
             'price' => $price,
             'discounted_price' => $offerPrice,
             'discount' => $discount,
@@ -1111,7 +1138,7 @@ class ProductInventoryImportService
     private function sameGeneralData(array $left, array $right): bool
     {
         foreach ([
-            'action', 'name', 'model', 'brand_id', 'category_id', 'subcategory_id',
+            'action', 'name', 'model', 'brand', 'category', 'subcategory',
             'material', 'description', 'is_active',
         ] as $field) {
             if ($this->normalizeComparable($left[$field] ?? null) !== $this->normalizeComparable($right[$field] ?? null)) {
@@ -1202,6 +1229,139 @@ class ProductInventoryImportService
         return null;
     }
 
+    private function generalDefaultsByCode(array $rows): array
+    {
+        $fields = [
+            'accion', 'nombre', 'modelo', 'marca', 'categoria', 'subcategoria',
+            'precio', 'precio_oferta', 'material', 'descripcion', 'estado',
+        ];
+        $defaults = [];
+
+        foreach ($rows as $source) {
+            $raw = $source['data'] ?? [];
+            $code = trim((string) ($raw['codigo_producto'] ?? ''));
+            if ($code === '') {
+                continue;
+            }
+
+            $key = $this->normalizeText($code);
+            foreach ($fields as $field) {
+                $value = $raw[$field] ?? null;
+                if (trim((string) ($value ?? '')) === '') {
+                    continue;
+                }
+                if (!array_key_exists($field, $defaults[$key] ?? [])) {
+                    $defaults[$key][$field] = $value;
+                }
+            }
+        }
+
+        return $defaults;
+    }
+
+    private function valueOrDefault(mixed $value, mixed $default): mixed
+    {
+        return trim((string) ($value ?? '')) === '' ? $default : $value;
+    }
+
+    private function normalizeAction(mixed $value): string
+    {
+        return match ($this->normalizeText((string) ($value ?? ''))) {
+            'crear', 'create', 'alta', 'nuevo', 'nueva', 'agregar' => 'CREAR',
+            'actualizar', 'update', 'editar', 'modificar' => 'ACTUALIZAR',
+            default => mb_strtoupper($this->normalizeText((string) ($value ?? '')), 'UTF-8'),
+        };
+    }
+
+    private function canonicalCategoryName(string $value): string
+    {
+        $normalized = $this->normalizeText($value);
+
+        return match ($normalized) {
+            'huarrache', 'huarraches', 'huaraches' => 'Huarache',
+            default => trim($value),
+        };
+    }
+
+    private function brandAlias(string $value): string
+    {
+        $normalized = $this->normalizeText($value);
+
+        return match ($normalized) {
+            'flexi dama', 'flexi mujer', 'flexi damas',
+            'flexi caballero', 'flexi caballeros', 'flexi hombre' => 'flexi',
+            default => $normalized,
+        };
+    }
+
+    private function resolveCategoryId(string $name, mixed $knownId): ?int
+    {
+        if ($knownId !== null) {
+            return (int) $knownId;
+        }
+
+        $name = $this->canonicalCategoryName(trim($name));
+        if ($name === '') {
+            return null;
+        }
+
+        $normalized = $this->categoryAlias($name);
+        $existing = Category::query()
+            ->get(['id', 'name'])
+            ->first(fn ($item) => $this->categoryAlias($item->name) === $normalized);
+
+        if ($existing) {
+            return (int) $existing->id;
+        }
+
+        $slug = Str::slug($name);
+        $bySlug = $slug !== ''
+            ? Category::query()->where('slug', $slug)->first()
+            : null;
+
+        if ($bySlug) {
+            return (int) $bySlug->id;
+        }
+
+        $category = Category::create([
+            'name' => $name,
+            'order' => ((int) Category::query()->max('order')) + 1,
+            'is_active' => true,
+        ]);
+
+        return (int) $category->id;
+    }
+
+    private function resolveSubcategoryId(string $name, mixed $knownId, ?int $categoryId): ?int
+    {
+        if ($knownId !== null) {
+            return (int) $knownId;
+        }
+
+        $name = trim($name);
+        if ($name === '' || $categoryId === null) {
+            return null;
+        }
+
+        $existing = Subcategory::query()
+            ->where('category_id', $categoryId)
+            ->get(['id', 'name'])
+            ->first(fn ($item) => $this->normalizeText($item->name) === $this->normalizeText($name));
+
+        if ($existing) {
+            return (int) $existing->id;
+        }
+
+        $subcategory = Subcategory::create([
+            'category_id' => $categoryId,
+            'name' => $name,
+            'order' => ((int) Subcategory::query()->where('category_id', $categoryId)->max('order')) + 1,
+            'is_active' => true,
+        ]);
+
+        return (int) $subcategory->id;
+    }
+
     private function categoryAlias(string $value): string
     {
         $normalized = $this->normalizeText($value);
@@ -1209,6 +1369,7 @@ class ProductInventoryImportService
         return match ($normalized) {
             'damas', 'dama' => 'mujer',
             'caballeros', 'caballero' => 'hombre',
+            'huarrache', 'huarraches', 'huaraches' => 'huarache',
             default => $normalized,
         };
     }
@@ -1216,6 +1377,14 @@ class ProductInventoryImportService
     private function normalizeText(string $value): string
     {
         $value = trim(mb_strtolower($value, 'UTF-8'));
+        $value = strtr($value, [
+            'á' => 'a', 'à' => 'a', 'ä' => 'a', 'â' => 'a', 'ã' => 'a',
+            'é' => 'e', 'è' => 'e', 'ë' => 'e', 'ê' => 'e',
+            'í' => 'i', 'ì' => 'i', 'ï' => 'i', 'î' => 'i',
+            'ó' => 'o', 'ò' => 'o', 'ö' => 'o', 'ô' => 'o', 'õ' => 'o',
+            'ú' => 'u', 'ù' => 'u', 'ü' => 'u', 'û' => 'u',
+            'ñ' => 'n', 'ç' => 'c',
+        ]);
         $transliterated = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
         $value = $transliterated !== false ? $transliterated : $value;
         $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
