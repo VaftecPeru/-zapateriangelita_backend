@@ -80,7 +80,7 @@ class InventoryController extends Controller
             'product_id' => ['required', 'integer', 'exists:products,id'],
             'variant_id' => ['nullable', 'integer', 'exists:product_variant_stocks,id'],
             'color' => ['nullable', 'string', 'max:50'],
-            'size' => ['nullable', 'string', 'max:10'],
+            'size' => ['nullable', 'string', 'max:255'],
             'type' => ['required', 'in:entrada,salida,ajuste'],
             'quantity' => ['required', 'integer', 'min:0'],
             'reason' => ['nullable', 'string', 'max:255', 'required_if:type,ajuste'],
