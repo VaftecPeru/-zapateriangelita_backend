@@ -133,65 +133,79 @@ class ProductInventoryImportTest extends TestCase
             ->assertJsonPath('groups.0.total_stock', 4);
     }
 
-    public function test_preview_inherits_general_fields_and_normalizes_flexi_dama(): void
+    public function test_preview_inherits_fields_and_normalizes_flexi_dama_after_catalog_approval(): void
     {
         $this->assertNotNull(Brand::whereRaw('LOWER(name) = ?', ['flexi'])->first());
 
+        Category::create(['name' => 'Huarache', 'is_active' => true, 'order' => 10]);
         $file = $this->xlsx([
             $this->headers(),
             ['CREAR', 'ZA-FLEXI-01', 'Huarache Flexi Dama', 'HF-01', 'FLEXI DAMA', 'huarrache', '', '$1,299.00', '', 'Piel', 'Beige', '23', '2', '', '', '', '', 'ACTIVO', '', 'OK'],
             ['', 'ZA-FLEXI-01', '', '', '', '', '', '', '', '', 'Beige', '24', '3', '', '', '', '', '', '', 'OK'],
         ]);
-
-        $response = $this->post('/api/admin/products/import/preview', ['file' => $file], [
-            'Accept' => 'application/json',
-        ]);
-
-        $response
-            ->assertOk()
-            ->assertJsonPath('valid', true)
+        $response = $this->post('/api/admin/products/import/preview', ['file' => $file], ['Accept' => 'application/json']);
+        $response->assertOk()->assertJsonPath('valid', true)
             ->assertJsonPath('summary.error_rows', 0)
-            ->assertJsonPath('rows.1.action', 'CREAR')
             ->assertJsonPath('rows.1.name', 'Huarache Flexi Dama')
             ->assertJsonPath('rows.1.price', 1299)
             ->assertJsonPath('groups.0.brand', 'flexi')
             ->assertJsonPath('groups.0.category', 'Huarache')
             ->assertJsonPath('groups.0.total_stock', 5);
-
-        $warnings = implode(' | ', $response->json('rows.0.warnings'));
-        $this->assertStringContainsString('Se creará la categoría', $warnings);
-        $this->assertStringContainsString('Marca normalizada', $warnings);
+        $this->assertStringContainsString('Marca normalizada', implode(' | ', $response->json('rows.0.warnings')));
     }
 
-    public function test_commit_creates_unknown_category_without_blocking_import(): void
+    public function test_unknown_catalog_is_blocked_until_explicit_registration_and_approval(): void
     {
-        $brand = Brand::whereRaw('LOWER(name) = ?', ['flexi'])->firstOrFail();
-
         $file = $this->xlsx([
             $this->headers(),
             ['CREAR', 'ZA-FLEXI-02', 'Huarache Flexi Dama', 'HF-02', 'FLEXI DAMA', 'huarrache', '', '1499', '', 'Piel', 'Negro', '24', '4', '', '', '', '', 'ACTIVO', '', 'OK'],
-            ['', 'ZA-FLEXI-02', '', '', '', '', '', '', '', '', 'Negro', '25', '2', '', '', '', '', '', '', 'OK'],
         ]);
 
-        $response = $this->post('/api/admin/products/import/commit', ['file' => $file], [
-            'Accept' => 'application/json',
+        $this->post('/api/admin/products/import/preview', ['file' => $file], ['Accept' => 'application/json'])
+            ->assertOk()->assertJsonPath('valid', false);
+        $this->post('/api/admin/products/import/commit', ['file' => $file], ['Accept' => 'application/json'])
+            ->assertStatus(422);
+        $this->assertDatabaseMissing('products', ['product_code' => 'ZA-FLEXI-02']);
+        $this->assertDatabaseMissing('categories', ['slug' => 'huarache']);
+
+        // El asistente crea el catálogo inactivo y solo después un administrador lo aprueba.
+        $response = $this->postJson('/api/categories', [
+            'name' => 'Huarache', 'is_active' => false,
+        ])->assertCreated();
+        $id = $response->json('id');
+        $this->post('/api/admin/products/import/preview', ['file' => $file], ['Accept' => 'application/json'])
+            ->assertOk()->assertJsonPath('valid', false);
+        $this->putJson('/api/categories/' . $id, ['is_active' => true])->assertOk();
+        $this->post('/api/admin/products/import/commit', ['file' => $file], ['Accept' => 'application/json'])
+            ->assertOk()->assertJsonPath('summary.created', 1)
+            ->assertJsonPath('summary.units', 4);
+        $this->assertDatabaseHas('products', ['product_code' => 'ZA-FLEXI-02']);
+    }
+
+    public function test_existing_category_mapping_never_creates_a_new_category(): void
+    {
+        $file = $this->xlsx([
+            $this->headers(),
+            ['CREAR', 'ZA-CATALOG-MAP', 'Bota caballero', '418103', 'Angelita', 'Señores', 'Botines', '1000', '', 'Piel', 'Negro', '6', '2', '', '', '', '', 'ACTIVO', '', 'OK'],
         ]);
+        $mappings = json_encode(['categories' => ['senores' => 'Hombre']], JSON_THROW_ON_ERROR);
+        $this->post('/api/admin/products/import/preview', [
+            'file' => $file, 'catalog_mappings' => $mappings,
+        ], ['Accept' => 'application/json'])->assertOk()
+            ->assertJsonPath('valid', true)
+            ->assertJsonPath('groups.0.category', 'Hombre');
 
-        $response
-            ->assertOk()
-            ->assertJsonPath('success', true)
-            ->assertJsonPath('summary.created', 1)
-            ->assertJsonPath('summary.variants', 2)
-            ->assertJsonPath('summary.units', 6);
+        $this->post('/api/admin/products/import/commit', [
+            'file' => $file, 'catalog_mappings' => $mappings,
+        ], ['Accept' => 'application/json'])->assertOk();
+        $this->assertDatabaseMissing('categories', ['name' => 'Señores']);
+        $this->assertDatabaseHas('products', ['product_code' => 'ZA-CATALOG-MAP']);
+    }
 
-        $category = Category::where('slug', 'huarache')->firstOrFail();
-        $product = Product::where('product_code', 'ZA-FLEXI-02')->firstOrFail();
-
-        $this->assertSame($brand->id, $product->brand_id);
-        $this->assertSame($category->id, $product->category_id);
-        $this->assertSame('Huarache', $category->name);
-        $this->assertSame('1499.00', (string) $product->price);
-        $this->assertSame(6, (int) $product->stock);
+    public function test_duplicate_category_registration_is_rejected(): void
+    {
+        $this->postJson('/api/categories', ['name' => 'hombre'])->assertStatus(422);
+        $this->assertDatabaseCount('categories', Category::query()->count());
     }
 
     public function test_preview_blocks_example_rows_and_duplicate_color_size_variant(): void
