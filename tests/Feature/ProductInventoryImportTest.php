@@ -287,7 +287,7 @@ class ProductInventoryImportTest extends TestCase
 
         $cart = [
             'customer_name' => 'Administrador QA',
-            'customer_email' => auth()->user()->email,
+            'customer_email' => 'angelita-qa-cliente@example.com',
             'shipping_address' => 'Calle QA 123',
             'shipping_city' => 'Pachuca',
             'shipping_country' => 'México',
