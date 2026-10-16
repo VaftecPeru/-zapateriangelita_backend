@@ -78,7 +78,7 @@ class ProductInventoryImportService
 
             $rows = [
                 ['ZAPATERÍA ANGELITA — PLANTILLA DE IMPORTACIÓN DE PRODUCTOS E INVENTARIO'],
-                ['Propuesta V1 · Una fila = una variante de producto (color + talla). El mismo código puede repetirse.'],
+                ['Plantilla V2 · Una fila por color; múltiples tallas requieren STOCK_POR_TALLA (ejemplo 5:2;6:1;7:3). Registra antes marcas y categorías en el Paso 0.'],
                 [],
                 [
                     'ACCIÓN*', 'CÓDIGO_PRODUCTO*', 'NOMBRE*', 'MODELO', 'MARCA*',
@@ -125,7 +125,7 @@ class ProductInventoryImportService
         return $binary;
     }
 
-    public function preview(UploadedFile $file): array
+    public function preview(UploadedFile $file, array $mappings = []): array
     {
         $parsed = $this->readFile($file);
 
@@ -133,14 +133,15 @@ class ProductInventoryImportService
             $parsed['rows'],
             $parsed['format'],
             $parsed['header_row'],
+            $mappings,
         );
     }
 
-    public function commit(UploadedFile $file, ?int $userId = null): array
+    public function commit(UploadedFile $file, ?int $userId = null, array $mappings = []): array
     {
         // El endpoint de commit recibe el archivo original y lo vuelve a
         // interpretar/validar. Nunca se confía en la vista previa del navegador.
-        $preview = $this->preview($file);
+        $preview = $this->preview($file, $mappings);
 
         if (!$preview['valid']) {
             throw new RuntimeException('El archivo contiene errores. Corrige la vista previa antes de importar.');
@@ -570,15 +571,15 @@ class ProductInventoryImportService
         return null;
     }
 
-    private function analyzeRows(array $rows, string $format, int $headerRow): array
+    private function analyzeRows(array $rows, string $format, int $headerRow, array $mappings = []): array
     {
-        $categoryLookup = Category::query()->get(['id', 'name'])->keyBy(
+        $categoryLookup = Category::query()->where('is_active', true)->get(['id', 'name'])->keyBy(
+            fn ($item) => $this->categoryAlias($item->name)
+        );
+        $brandLookup = Brand::query()->where('is_active', true)->get(['id', 'name'])->keyBy(
             fn ($item) => $this->normalizeText($item->name)
         );
-        $brandLookup = Brand::query()->get(['id', 'name'])->keyBy(
-            fn ($item) => $this->normalizeText($item->name)
-        );
-        $subcategories = Subcategory::query()->get(['id', 'category_id', 'name']);
+        $subcategories = Subcategory::query()->where('is_active', true)->get(['id', 'category_id', 'name']);
 
         $existingProducts = Product::query()
             ->whereNotNull('product_code')
@@ -616,9 +617,13 @@ class ProductInventoryImportService
             $action = $this->normalizeAction($generalValue('accion'));
             $name = trim((string) $generalValue('nombre'));
             $model = trim((string) $generalValue('modelo'));
-            $brandName = trim((string) $generalValue('marca'));
-            $categoryName = $this->canonicalCategoryName(trim((string) $generalValue('categoria')));
-            $subcategoryName = trim((string) $generalValue('subcategoria'));
+            $brandName = $this->catalogMappedName(trim((string) $generalValue('marca')), $mappings['brands'] ?? []);
+            $categoryName = $this->canonicalCategoryName($this->catalogMappedName(trim((string) $generalValue('categoria')), $mappings['categories'] ?? []));
+            $subcategoryName = $this->catalogMappedName(
+                trim((string) $generalValue('subcategoria')),
+                $mappings['subcategories'] ?? [],
+                $this->normalizeText($categoryName) . '|'
+            );
             $material = trim((string) $generalValue('material'));
             $color = trim((string) ($raw['color'] ?? ''));
             $size = trim((string) ($raw['talla'] ?? ''));
@@ -655,7 +660,7 @@ class ProductInventoryImportService
                 ? null
                 : $categoryLookup->get($categoryNormalized);
             if ($categoryName !== '' && !$category) {
-                $warnings[] = 'Se creará la categoría "' . $categoryName . '" al importar';
+                $errors[] = 'Categoría no registrada: ' . $categoryName . '. Resuélvela en Paso 0.';
             }
 
             $brand = $brandLookup->get($this->brandAlias($brandName));
@@ -675,12 +680,12 @@ class ProductInventoryImportService
                 );
 
                 if (!$subcategory) {
-                    $warnings[] = 'Se creará la subcategoría "' . $subcategoryName . '" dentro de ' . $category->name;
+                    $errors[] = 'Subcategoría no registrada: ' . $subcategoryName . ' dentro de ' . $category->name . '. Resuélvela en Paso 0.';
                 }
             } elseif ($subcategoryName !== '' && $categoryName !== '') {
-                $warnings[] = 'Se creará la subcategoría "' . $subcategoryName . '" junto con la categoría ' . $categoryName;
+                $errors[] = 'Subcategoría pendiente: ' . $subcategoryName . '. Registra primero la categoría ' . $categoryName . '.';
             } elseif ($subcategoryName !== '') {
-                $warnings[] = 'SUBCATEGORÍA se ignorará porque no se indicó CATEGORÍA';
+                $errors[] = 'SUBCATEGORÍA requiere CATEGORÍA para establecer su relación';
             }
 
             if ($price === null || $price <= 0) {
@@ -1341,72 +1346,48 @@ class ProductInventoryImportService
         };
     }
 
+    // Las altas de catálogos solo se efectúan desde Paso 0 con autorización explícita.
     private function resolveCategoryId(string $name, mixed $knownId): ?int
     {
-        if ($knownId !== null) {
-            return (int) $knownId;
-        }
-
-        $name = $this->canonicalCategoryName(trim($name));
-        if ($name === '') {
-            return null;
+        if (trim($name) === '') {
+            return $knownId === null ? null : (int) $knownId;
         }
 
         $normalized = $this->categoryAlias($name);
-        $existing = Category::query()
-            ->get(['id', 'name'])
-            ->first(fn ($item) => $this->categoryAlias($item->name) === $normalized);
-
-        if ($existing) {
-            return (int) $existing->id;
+        $existing = Category::query()->where('is_active', true)->get(['id', 'name'])->first(
+            fn ($item) => $this->categoryAlias($item->name) === $normalized
+        );
+        if (!$existing || ($knownId !== null && (int) $knownId !== (int) $existing->id)) {
+            throw new RuntimeException('Categoría no registrada o modificada durante la importación: ' . $name);
         }
-
-        $slug = Str::slug($name);
-        $bySlug = $slug !== ''
-            ? Category::query()->where('slug', $slug)->first()
-            : null;
-
-        if ($bySlug) {
-            return (int) $bySlug->id;
-        }
-
-        $category = Category::create([
-            'name' => $name,
-            'order' => ((int) Category::query()->max('order')) + 1,
-            'is_active' => true,
-        ]);
-
-        return (int) $category->id;
+        return (int) $existing->id;
     }
 
     private function resolveSubcategoryId(string $name, mixed $knownId, ?int $categoryId): ?int
     {
-        if ($knownId !== null) {
-            return (int) $knownId;
-        }
-
-        $name = trim($name);
-        if ($name === '' || $categoryId === null) {
+        if (trim($name) === '') {
             return null;
         }
-
-        $existing = Subcategory::query()
-            ->where('category_id', $categoryId)
-            ->get(['id', 'name'])
-            ->first(fn ($item) => $this->normalizeText($item->name) === $this->normalizeText($name));
-
-        if ($existing) {
-            return (int) $existing->id;
+        if ($categoryId === null) {
+            throw new RuntimeException('Subcategoría sin categoría padre: ' . $name);
         }
 
-        $subcategory = Subcategory::create([
-            'category_id' => $categoryId,
-            'name' => $name,
-            'order' => ((int) Subcategory::query()->where('category_id', $categoryId)->max('order')) + 1,
-            'is_active' => true,
-        ]);
+        $existing = Subcategory::query()->where('category_id', $categoryId)
+            ->where('is_active', true)->get(['id', 'name'])->first(fn ($item) => $this->normalizeText($item->name) === $this->normalizeText($name));
+        if (!$existing || ($knownId !== null && (int) $knownId !== (int) $existing->id)) {
+            throw new RuntimeException('Subcategoría no registrada o modificada durante la importación: ' . $name);
+        }
+        return (int) $existing->id;
+    }
 
-        return (int) $subcategory->id;
+    private function catalogMappedName(string $source, array $mappings, string $prefix = ''): string
+    {
+        if ($source === '') {
+            return '';
+        }
+        $key = $prefix . $this->normalizeText($source);
+        $replacement = $mappings[$key] ?? null;
+        return is_string($replacement) && trim($replacement) !== '' ? trim($replacement) : $source;
     }
 
     private function categoryAlias(string $value): string

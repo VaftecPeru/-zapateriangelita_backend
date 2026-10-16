@@ -60,6 +60,14 @@ class CategoryController extends Controller
             'is_active' => 'nullable|boolean',
         ]);
 
+        $normalized = \Illuminate\Support\Str::slug(trim($validated['name']));
+        if (\App\Models\Category::query()->get(['name'])->contains(fn ($item) =>
+            \Illuminate\Support\Str::slug($item->name) === $normalized
+        )) {
+            return response()->json(['message' => 'La categoría ya existe. Reutilízala o actívala.'], 422);
+        }
+        $validated['name'] = trim($validated['name']);
+
         try {
             $category = Category::create($validated);
             $category->load('subcategories');
