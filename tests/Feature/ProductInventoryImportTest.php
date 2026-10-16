@@ -407,7 +407,7 @@ class ProductInventoryImportTest extends TestCase
             'Accept' => 'application/json',
         ])->assertOk()->assertJsonPath('valid', true)
             ->assertJsonPath('summary.products', 3)
-            ->assertJsonPath('summary.units', 44);
+            ->assertJsonPath('summary.variants', 12);
 
         $this->post('/api/admin/products/import/commit', ['file' => $file], [
             'Accept' => 'application/json',
