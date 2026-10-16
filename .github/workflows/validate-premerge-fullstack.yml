@@ -5,10 +5,12 @@ on:
     branches:
       - main
       - develop
+      - stable/angelita-qa-import-20261015
   push:
     branches:
       - main
       - develop
+      - stable/angelita-qa-import-20261015
   workflow_dispatch:
 
 permissions:
