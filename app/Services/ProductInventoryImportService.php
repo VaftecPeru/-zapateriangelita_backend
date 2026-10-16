@@ -702,9 +702,9 @@ class ProductInventoryImportService
             } elseif (mb_strlen($color) > 50) {
                 $errors[] = 'COLOR supera 50 caracteres';
             }
-            // No imponer un límite artificial de 10 caracteres a las tallas importadas.
-            // La compatibilidad con las columnas de BD y el tratamiento de listas
-            // de tallas deben verificarse antes del despliegue a producción.
+            // TALLA puede contener una lista mayor de 10 caracteres (ej. 18,19,20,21).
+            // Cada talla INDIVIDUAL debe caber en product_sizes.size y
+            // product_variant_stocks.size: VARCHAR(10) en MariaDB histórico.
             if ($size === '') {
                 $errors[] = 'TALLA es obligatoria';
             }
@@ -716,6 +716,12 @@ class ProductInventoryImportService
             // Requiere desglose explícito para evitar asignar stock arbitrariamente.
             $breakdown = trim((string) ($raw['stock_por_talla'] ?? ''));
             $sizeTokens = array_map('trim', explode(',', $size));
+            foreach ($sizeTokens as $atomicSize) {
+                if ($atomicSize !== '' && mb_strlen($atomicSize) > 10) {
+                    $errors[] = 'Cada talla individual debe tener máximo 10 caracteres (límite de BD)';
+                    break;
+                }
+            }
             $expandedVariants = [];
             if ($breakdown === '' && count($sizeTokens) > 1) {
                 $errors[] = 'STOCK_POR_TALLA es obligatorio cuando TALLA contiene varias tallas (ej. 2:3;3:4;4:2)';
@@ -730,7 +736,7 @@ class ProductInventoryImportService
                     }
                     $entrySize = trim($parts[1]);
                     $entryKey = $this->normalizeText($entrySize);
-                    if ($entrySize === '' || mb_strlen($entrySize) > 255 || isset($seenSizes[$entryKey])) {
+                    if ($entrySize === '' || mb_strlen($entrySize) > 10 || isset($seenSizes[$entryKey])) {
                         $errors[] = 'STOCK_POR_TALLA contiene una talla vacía, repetida o demasiado larga';
                         continue;
                     }

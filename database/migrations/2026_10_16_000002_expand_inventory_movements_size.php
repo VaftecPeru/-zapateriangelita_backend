@@ -12,8 +12,9 @@ return new class extends Migration
             return;
         }
 
-        // La tabla histórica usa VARCHAR(10), mientras products, product_sizes
-        // y product_variant_stocks admiten tallas de hasta 255 caracteres.
+        // Se amplía solo la columna de auditoría de movimientos.
+        // product_sizes.size y product_variant_stocks.size mantienen VARCHAR(10)
+        // en la base histórica: el importador valida cada talla individual.
         Schema::table('inventory_movements', function (Blueprint $table): void {
             $table->string('size', 255)->nullable()->change();
         });

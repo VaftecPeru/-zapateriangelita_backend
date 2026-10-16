@@ -466,6 +466,29 @@ class ProductInventoryImportTest extends TestCase
         $this->assertDatabaseMissing('products', ['product_code' => 'ZA-GROUPED-01']);
     }
 
+    public function test_preview_rejects_atomic_size_exceeding_historical_mariadb_limit(): void
+    {
+        $file = $this->xlsx([
+            $this->headers(),
+            [
+                'CREAR', 'ZA-SIZE-TOO-LONG', 'Botín de prueba', 'QA-SIZE',
+                'Angelita', 'Hombre', 'Botines', '1000', '', '',
+                'Negro', 'TALLA-EXCESO', '2', '', '', '', '',
+                'INACTIVO', '', 'OK',
+            ],
+        ]);
+
+        $response = $this->post('/api/admin/products/import/preview', ['file' => $file], [
+            'Accept' => 'application/json',
+        ]);
+        $response->assertOk()->assertJsonPath('valid', false);
+        $this->assertStringContainsString(
+            'máximo 10 caracteres',
+            implode(' | ', $response->json('rows.0.errors')),
+        );
+        $this->assertDatabaseMissing('products', ['product_code' => 'ZA-SIZE-TOO-LONG']);
+    }
+
     public function test_one_row_import_expands_sizes_into_independent_stock_and_movements(): void
     {
         $headers = implode(',', array_merge($this->headers(), ['STOCK_POR_TALLA']));
