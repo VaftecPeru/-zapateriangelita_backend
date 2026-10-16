@@ -109,7 +109,11 @@ class CheckoutController extends Controller
 
                     if ((\Illuminate\Support\Facades\Schema::hasColumn('products', 'is_active') && !$product->is_active)
                         || (float) $product->price <= 0
-                        || ($product->auto_publish && trim((string) $product->img) === '')) {
+                        || ($product->auto_publish && (
+                            trim((string) $product->img) === ''
+                            || !$product->brand()->where('is_active', true)->exists()
+                            || !$product->category()->where('is_active', true)->exists()
+                        ))) {
                         abort(422, 'Este producto está pendiente de publicación y no puede comprarse.');
                     }
 
