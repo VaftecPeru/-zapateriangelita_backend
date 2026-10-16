@@ -136,17 +136,29 @@ class ProductInventoryImportService
         );
     }
 
-    public function commit(UploadedFile $file, ?int $userId = null, array $mappings = []): array
+    public function commit(UploadedFile $file, ?int $userId = null, array $mappings = [], bool $validOnly = false): array
     {
         // El endpoint de commit recibe el archivo original y lo vuelve a
         // interpretar/validar. Nunca se confía en la vista previa del navegador.
         $preview = $this->preview($file, $mappings);
 
-        if (!$preview['valid']) {
+        if (!$preview['valid'] && !$validOnly) {
             throw new RuntimeException('El archivo contiene errores. Corrige la vista previa antes de importar.');
         }
 
-        $result = DB::transaction(function () use ($preview, $userId) {
+        $eligibleGroups = array_values(array_filter(
+            $preview['groups'],
+            fn ($group) => $group['valid']
+        ));
+        if (!$eligibleGroups) {
+            throw new RuntimeException('Ningún producto tiene datos de inventario válidos para importar.');
+        }
+        $skippedCodes = array_values(array_map(
+            fn ($group) => $group['code'],
+            array_filter($preview['groups'], fn ($group) => !$group['valid'])
+        ));
+
+        $result = DB::transaction(function () use ($eligibleGroups, $skippedCodes, $userId) {
             $created = 0;
             $updated = 0;
             $variants = 0;
@@ -154,7 +166,7 @@ class ProductInventoryImportService
             $published = 0;
             $drafts = 0;
 
-            foreach ($preview['groups'] as $group) {
+            foreach ($eligibleGroups as $group) {
                 $product = $this->persistGroup($group, $userId);
                 if ($product->is_active) {
                     $published++;
@@ -172,7 +184,10 @@ class ProductInventoryImportService
                 $units += (int) $group['total_stock'];
             }
 
-            return compact('created', 'updated', 'variants', 'units', 'published', 'drafts');
+            return array_merge(
+                compact('created', 'updated', 'variants', 'units', 'published', 'drafts'),
+                ['skipped' => count($skippedCodes), 'skipped_codes' => $skippedCodes],
+            );
         });
 
         return [
