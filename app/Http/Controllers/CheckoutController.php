@@ -108,7 +108,7 @@ class CheckoutController extends Controller
                     }
 
                     if (!$product->is_active || (float) $product->price <= 0
-                        || trim((string) $product->img) === '') {
+                        || ($product->auto_publish && trim((string) $product->img) === '')) {
                         abort(422, 'Este producto está pendiente de publicación y no puede comprarse.');
                     }
 
