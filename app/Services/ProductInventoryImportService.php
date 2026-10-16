@@ -960,6 +960,18 @@ class ProductInventoryImportService
                 }
             }
 
+            $hasImage = count($allImages) > 0
+                || ($existing && (trim((string) $existing->img) !== ''
+                    || count(is_array($existing->images) ? $existing->images : []) > 0));
+            $willPublish = count($groupErrors) === 0
+                && $first['auto_publish'] && (float) $first['price'] > 0
+                && $totalStock > 0 && $hasImage
+                && $first['brand_id'] && $first['category_id']
+                && trim((string) $first['model']) !== '';
+            foreach ($indexes as $index) {
+                $normalizedRows[$index]['is_active'] = (bool) $willPublish;
+            }
+
             $groups[] = [
                 'code' => $first['code'],
                 'action' => $first['action'],
@@ -977,11 +989,7 @@ class ProductInventoryImportService
                 'description' => $first['description'],
                 // Estado previsto para la vista previa. La decisión final se
                 // revalida sobre el producto persistido mediante PublicationService.
-                'is_active' => $first['auto_publish']
-                    && $first['price'] > 0 && $totalStock > 0
-                    && count($allImages) > 0
-                    && $first['brand_id'] && $first['category_id']
-                    && $first['model'] !== '',
+                'is_active' => (bool) $willPublish,
                 'auto_publish' => $first['auto_publish'],
                 'colors' => $colors,
                 'sizes' => $sizes,
