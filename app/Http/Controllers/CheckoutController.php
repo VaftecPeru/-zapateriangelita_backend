@@ -107,7 +107,8 @@ class CheckoutController extends Controller
                         abort(404, 'Producto no encontrado.');
                     }
 
-                    if (!$product->is_active || (float) $product->price <= 0
+                    if ((\Illuminate\Support\Facades\Schema::hasColumn('products', 'is_active') && !$product->is_active)
+                        || (float) $product->price <= 0
                         || ($product->auto_publish && trim((string) $product->img) === '')) {
                         abort(422, 'Este producto está pendiente de publicación y no puede comprarse.');
                     }
