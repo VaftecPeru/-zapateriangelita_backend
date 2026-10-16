@@ -307,6 +307,16 @@ class ProductInventoryImportTest extends TestCase
         ]))->assertStatus(422);
         $this->assertSame(6, (int) $product->fresh()->stock);
 
+        // El carrito con dos líneas de la talla 6 (1 unidad disponible)
+        // se rechaza antes de generar pedidos o descontar inventario.
+        $this->postJson('/api/checkout/orders', array_merge($cart, [
+            'items' => [
+                ['product_id' => $product->id, 'size' => '6', 'color' => 'Negro', 'quantity' => 1],
+                ['product_id' => $product->id, 'size' => '6', 'color' => 'Negro', 'quantity' => 1],
+            ],
+        ]))->assertStatus(422);
+        $this->assertSame(6, (int) $product->fresh()->stock);
+
         $orderResponse = $this->postJson('/api/checkout/orders', array_merge($cart, [
             'items' => [[
                 'product_id' => $product->id, 'size' => '6',
