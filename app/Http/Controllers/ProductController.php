@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Product;
+use App\Services\ProductPublicationService;
 use App\Models\ProductColor;
 use App\Models\ProductSize;
 use App\Models\ProductVariantStock;
@@ -332,7 +333,11 @@ class ProductController extends Controller
             'sizes',
             'colors',
             'variantStocks',
-        )->where('is_active', true);
+        )->where('is_active', true)
+            ->where('price', '>', 0)
+            ->whereNotNull('img')->where('img', '!=', '')
+            ->whereHas('brand', fn ($brand) => $brand->where('is_active', true))
+            ->whereHas('category', fn ($category) => $category->where('is_active', true));
 
         $search = trim((string) ($validated['search'] ?? ''));
         if ($search !== '') {
@@ -433,7 +438,7 @@ class ProductController extends Controller
             'brand_id' => 'nullable|integer|exists:brands,id',
             'category_id' => 'required|integer|exists:categories,id',
             'subcategory_id' => 'nullable|integer|exists:subcategories,id',
-            'price' => 'required|numeric|min:0.01',
+            'price' => 'required|numeric|min:0',
             'discounted_price' => 'nullable|numeric|min:0',
             'stock' => 'required|integer|min:0',
             'size' => 'nullable|string|max:50',
@@ -460,7 +465,7 @@ class ProductController extends Controller
         }
 
         $discount = (float) ($validated['discount'] ?? 0);
-        $validated['discounted_price'] = $discount > 0
+        $validated['discounted_price'] = $discount > 0 && (float) $validated['price'] > 0
             ? round((float) $validated['price'] * (1 - min($discount, 100) / 100), 2)
             : null;
         $validated['discount'] = $discount > 0 ? (string) $discount : null;
@@ -498,6 +503,9 @@ class ProductController extends Controller
             }
 
             DB::transaction(function () use (&$product, $validated, $variantStocks, $sizeStocks) {
+                // Un alta manual sin precio o fotografía comienza en borrador.
+                $validated['auto_publish'] = true;
+                $validated['is_active'] = false;
                 $product = Product::create($validated);
                 $this->syncVariants($product);
 
@@ -506,6 +514,7 @@ class ProductController extends Controller
                 }
 
                 $this->syncVariantStocks($product, $variantStocks);
+                app(ProductPublicationService::class)->synchronize($product->fresh());
             });
             $product->load('sizes', 'colors', 'variantStocks');
             return response()->json($product, 201);
@@ -521,7 +530,10 @@ class ProductController extends Controller
 
     public function show(Product $product): JsonResponse
     {
-        if (!$product->is_active) {
+        if (!$product->is_active || (float) $product->price <= 0
+            || trim((string) $product->img) === ''
+            || !$product->brand()->where('is_active', true)->exists()
+            || !$product->category()->where('is_active', true)->exists()) {
             abort(404);
         }
 
@@ -539,7 +551,9 @@ class ProductController extends Controller
             'brand_id' => 'nullable|integer|exists:brands,id',
             'category_id' => 'nullable|integer|exists:categories,id',
             'subcategory_id' => 'nullable|integer|exists:subcategories,id',
-            'price' => 'nullable|numeric|min:0.01',
+            'price' => 'nullable|numeric|min:0',
+            'is_active' => 'sometimes|boolean',
+            'auto_publish' => 'sometimes|boolean',
             'discounted_price' => 'nullable|numeric|min:0',
             'stock' => 'nullable|integer|min:0',
             'size' => 'nullable|string|max:50',
@@ -562,6 +576,13 @@ class ProductController extends Controller
         }
 
         $validated = $validator->validated();
+        if ($request->has('is_active')) {
+            // El administrador puede detener la publicación automática.
+            $validated['auto_publish'] = $request->boolean('is_active');
+            $validated['is_active'] = false;
+        } elseif (array_key_exists('auto_publish', $validated) && !$validated['auto_publish']) {
+            $validated['is_active'] = false;
+        }
         $variantStocks = $request->has('variant_stocks')
             ? $this->normalizeVariantStocks($request->input('variant_stocks'))
             : null;
@@ -578,7 +599,7 @@ class ProductController extends Controller
 
         $price = array_key_exists('price', $validated) ? (float) $validated['price'] : (float) $product->price;
         $discount = array_key_exists('discount', $validated) ? (float) $validated['discount'] : (float) $product->discount;
-        $validated['discounted_price'] = $discount > 0
+        $validated['discounted_price'] = $discount > 0 && $price > 0
             ? round($price * (1 - min($discount, 100) / 100), 2)
             : null;
         $validated['discount'] = $discount > 0 ? (string) $discount : null;
@@ -705,6 +726,7 @@ class ProductController extends Controller
                 if (is_array($variantStocks)) {
                     $this->syncVariantStocks($freshProduct, $variantStocks);
                 }
+                app(ProductPublicationService::class)->synchronize($freshProduct->fresh());
             });
             $this->deleteUploadImages(array_merge($previousImages, $previousColorImages), $keptImages);
             $product->refresh();
@@ -717,6 +739,55 @@ class ProductController extends Controller
                 'error' => 'No se pudo actualizar el producto. Intenta nuevamente o revisa los logs del servidor.',
             ], 500);
         }
+    }
+
+    /**
+     * Registra un único precio MXN para un modelo en distintos colores.
+     * Únicamente rellena precios en cero: nunca reemplaza precios confirmados.
+     */
+    public function assignModelPrice(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'brand_id' => ['required', 'integer', 'exists:brands,id'],
+            'category_id' => ['required', 'integer', 'exists:categories,id'],
+            'model' => ['required', 'string', 'max:120'],
+            'price' => ['required', 'numeric', 'gt:0'],
+        ]);
+
+        $result = DB::transaction(function () use ($validated) {
+            $products = Product::query()
+                ->where('brand_id', $validated['brand_id'])
+                ->where('category_id', $validated['category_id'])
+                ->where('model', trim($validated['model']))
+                ->where('auto_publish', true)
+                ->where('price', '<=', 0)
+                ->lockForUpdate()->get();
+            $published = 0;
+            $drafts = 0;
+            foreach ($products as $product) {
+                $product->price = (float) $validated['price'];
+                $product->discounted_price = null;
+                $product->discount = null;
+                $product->save();
+                app(ProductPublicationService::class)->synchronize($product);
+                if ($product->fresh()->is_active) {
+                    $published++;
+                } else {
+                    $drafts++;
+                }
+            }
+            return [
+                'updated' => $products->count(),
+                'published' => $published,
+                'drafts' => $drafts,
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Precio aplicado al modelo; los productos incompletos siguen en borrador.',
+            'summary' => $result,
+        ]);
     }
 
     public function destroy(Product $product): JsonResponse

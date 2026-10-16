@@ -31,6 +31,7 @@ class Product extends Model
         'discount',
         'status',
         'is_active',
+        'auto_publish',
         'category_id',
         'subcategory_id',
     ];
@@ -43,6 +44,7 @@ class Product extends Model
         'color_images' => 'array',
         'color_sizes' => 'array',
         'is_active' => 'boolean',
+        'auto_publish' => 'boolean',
     ];
 
     protected static function booted(): void

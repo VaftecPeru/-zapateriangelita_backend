@@ -6,6 +6,7 @@ use App\Models\InventoryMovement;
 use App\Models\Product;
 use App\Models\ProductSize;
 use App\Models\ProductVariantStock;
+use App\Services\ProductPublicationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -197,6 +198,8 @@ class InventoryController extends Controller
                     $product->stock = $newStock;
                     $product->save();
                 }
+
+                app(ProductPublicationService::class)->synchronize($product->fresh());
 
                 return InventoryMovement::create([
                     'product_id' => $product->id,

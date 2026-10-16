@@ -203,6 +203,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('admin')->group(function () {
         // Productos
         Route::get('/admin/products', [ProductController::class, 'adminIndex']);
+        Route::put('/admin/products/model-price', [ProductController::class, 'assignModelPrice']);
         Route::get('/admin/products/import/template', [ProductImportController::class, 'template']);
         Route::post('/admin/products/import/preview', [ProductImportController::class, 'preview']);
         Route::post('/admin/products/import/commit', [ProductImportController::class, 'commit']);
