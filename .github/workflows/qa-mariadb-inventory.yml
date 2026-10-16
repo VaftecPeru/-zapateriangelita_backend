@@ -1,0 +1,65 @@
+name: QA MariaDB inventory V2 (isolated)
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  mariadb-inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: qa_only_password
+          MARIADB_DATABASE: angelita_qa
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=15
+    env:
+      APP_NAME: AngelitaQA
+      APP_ENV: testing
+      APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      APP_DEBUG: "false"
+      APP_URL: http://127.0.0.1
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: "3306"
+      DB_DATABASE: angelita_qa
+      DB_USERNAME: root
+      DB_PASSWORD: qa_only_password
+      CACHE_STORE: array
+      CACHE_DRIVER: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      OPENPAY_SANDBOX: "true"
+      OPENPAY_CURRENCY: MXN
+      OPENPAY_MERCHANT_ID: qa_only
+      OPENPAY_PUBLIC_KEY: pk_qa_only
+      OPENPAY_PRIVATE_KEY: sk_qa_only
+      OPENPAY_REDIRECT_URL: https://example.test/checkout
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, intl, pdo_mysql, bcmath, curl, openssl, fileinfo, zip, gd
+          tools: composer:v2
+          coverage: none
+      - name: Install dependencies for QA
+        run: composer install --prefer-dist --no-interaction --no-progress
+      - name: Boot Laravel on temporary MariaDB
+        run: php artisan about
+      - name: Check migrations on MariaDB 10.11
+        run: php artisan migrate:fresh --force
+      - name: Test inventory, catalogs, cart and stock reservation on MariaDB
+        run: vendor/bin/phpunit --testdox tests/Feature/ProductInventoryImportTest.php
+      - name: Test checkout + payment integration regressions
+        run: vendor/bin/phpunit --testdox tests/Feature/OpenpayWebhookReconciliationTest.php
