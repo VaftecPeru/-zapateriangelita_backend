@@ -78,7 +78,7 @@ class ProductInventoryImportService
 
             $rows = [
                 ['ZAPATERÍA ANGELITA — PLANTILLA DE IMPORTACIÓN DE PRODUCTOS E INVENTARIO'],
-                ['Propuesta V1 · Una fila = una variante de producto (color + talla). El mismo código puede repetirse.'],
+                ['Plantilla V2 · Una fila por color; múltiples tallas requieren STOCK_POR_TALLA (ejemplo 5:2;6:1;7:3). Registra antes marcas y categorías en el Paso 0.'],
                 [],
                 [
                     'ACCIÓN*', 'CÓDIGO_PRODUCTO*', 'NOMBRE*', 'MODELO', 'MARCA*',
