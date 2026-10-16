@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Product;
+use App\Services\ProductPublicationService;
 use App\Models\ProductColor;
 use App\Models\ProductSize;
 use App\Models\ProductVariantStock;
@@ -332,7 +333,9 @@ class ProductController extends Controller
             'sizes',
             'colors',
             'variantStocks',
-        )->where('is_active', true);
+        )->where('is_active', true)
+            ->where('price', '>', 0)
+            ->whereNotNull('img')->where('img', '!=', '');
 
         $search = trim((string) ($validated['search'] ?? ''));
         if ($search !== '') {
@@ -433,7 +436,7 @@ class ProductController extends Controller
             'brand_id' => 'nullable|integer|exists:brands,id',
             'category_id' => 'required|integer|exists:categories,id',
             'subcategory_id' => 'nullable|integer|exists:subcategories,id',
-            'price' => 'required|numeric|min:0.01',
+            'price' => 'required|numeric|min:0',
             'discounted_price' => 'nullable|numeric|min:0',
             'stock' => 'required|integer|min:0',
             'size' => 'nullable|string|max:50',
@@ -460,7 +463,7 @@ class ProductController extends Controller
         }
 
         $discount = (float) ($validated['discount'] ?? 0);
-        $validated['discounted_price'] = $discount > 0
+        $validated['discounted_price'] = $discount > 0 && (float) $validated['price'] > 0
             ? round((float) $validated['price'] * (1 - min($discount, 100) / 100), 2)
             : null;
         $validated['discount'] = $discount > 0 ? (string) $discount : null;
@@ -498,6 +501,9 @@ class ProductController extends Controller
             }
 
             DB::transaction(function () use (&$product, $validated, $variantStocks, $sizeStocks) {
+                // Un alta manual sin precio o fotografía comienza en borrador.
+                $validated['auto_publish'] = true;
+                $validated['is_active'] = false;
                 $product = Product::create($validated);
                 $this->syncVariants($product);
 
@@ -506,6 +512,7 @@ class ProductController extends Controller
                 }
 
                 $this->syncVariantStocks($product, $variantStocks);
+                app(ProductPublicationService::class)->synchronize($product->fresh());
             });
             $product->load('sizes', 'colors', 'variantStocks');
             return response()->json($product, 201);
@@ -521,7 +528,8 @@ class ProductController extends Controller
 
     public function show(Product $product): JsonResponse
     {
-        if (!$product->is_active) {
+        if (!$product->is_active || (float) $product->price <= 0
+            || trim((string) $product->img) === '') {
             abort(404);
         }
 
@@ -539,7 +547,9 @@ class ProductController extends Controller
             'brand_id' => 'nullable|integer|exists:brands,id',
             'category_id' => 'nullable|integer|exists:categories,id',
             'subcategory_id' => 'nullable|integer|exists:subcategories,id',
-            'price' => 'nullable|numeric|min:0.01',
+            'price' => 'nullable|numeric|min:0',
+            'is_active' => 'sometimes|boolean',
+            'auto_publish' => 'sometimes|boolean',
             'discounted_price' => 'nullable|numeric|min:0',
             'stock' => 'nullable|integer|min:0',
             'size' => 'nullable|string|max:50',
@@ -562,6 +572,11 @@ class ProductController extends Controller
         }
 
         $validated = $validator->validated();
+        if ($request->has('is_active')) {
+            // El administrador puede detener la publicación automática.
+            $validated['auto_publish'] = $request->boolean('is_active');
+            $validated['is_active'] = false;
+        }
         $variantStocks = $request->has('variant_stocks')
             ? $this->normalizeVariantStocks($request->input('variant_stocks'))
             : null;
@@ -578,7 +593,7 @@ class ProductController extends Controller
 
         $price = array_key_exists('price', $validated) ? (float) $validated['price'] : (float) $product->price;
         $discount = array_key_exists('discount', $validated) ? (float) $validated['discount'] : (float) $product->discount;
-        $validated['discounted_price'] = $discount > 0
+        $validated['discounted_price'] = $discount > 0 && $price > 0
             ? round($price * (1 - min($discount, 100) / 100), 2)
             : null;
         $validated['discount'] = $discount > 0 ? (string) $discount : null;
@@ -705,6 +720,7 @@ class ProductController extends Controller
                 if (is_array($variantStocks)) {
                     $this->syncVariantStocks($freshProduct, $variantStocks);
                 }
+                app(ProductPublicationService::class)->synchronize($freshProduct->fresh());
             });
             $this->deleteUploadImages(array_merge($previousImages, $previousColorImages), $keptImages);
             $product->refresh();
