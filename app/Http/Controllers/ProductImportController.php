@@ -47,9 +47,10 @@ class ProductImportController extends Controller
     {
         $file = $this->validatedFile($request);
         $mappings = $this->validatedMappings($request);
+        $request->validate(['import_valid_only' => ['sometimes', 'boolean']]);
 
         try {
-            return response()->json($this->importer->commit($file, $request->user()?->id, $mappings));
+            return response()->json($this->importer->commit($file, $request->user()?->id, $mappings, $request->boolean('import_valid_only')));
         } catch (RuntimeException $e) {
             return response()->json([
                 'message' => $e->getMessage(),
