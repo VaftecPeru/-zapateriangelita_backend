@@ -500,7 +500,7 @@ class ProductInventoryImportTest extends TestCase
         $data = $header . "\n"
             . 'CREAR,S0380,Calzado Pirma 0248,0248,Pirma,Mujer,,799,,,Negro/Blanco,3,2,,/uploads/products/s0380.webp,,,ACTIVO,,OK,' . "\n"
             . 'CREAR,S0041,Calzado Pirma 0248,0248,Pirma,Mujer,,0,,,Negro/Fucsia,3,4,,,,,ACTIVO,,OK,' . "\n"
-            . 'CREAR,S0042,Calzado Pirma 0248,0248,Pirma,Mujer,,,,,,Negro/Negro,3,6,,,,,ACTIVO,,OK,' . "\n";
+            . 'CREAR,S0042,Calzado Pirma 0248,0248,Pirma,Mujer,,0,,,Negro/Negro,3,6,,,,,ACTIVO,,OK,' . "\n";
         $file = UploadedFile::fake()->createWithContent('precio-compartido.csv', $data);
         $this->post('/api/admin/products/import/preview', ['file' => $file], [
             'Accept' => 'application/json',
