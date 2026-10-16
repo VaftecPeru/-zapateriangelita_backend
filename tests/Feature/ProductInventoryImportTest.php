@@ -244,7 +244,7 @@ class ProductInventoryImportTest extends TestCase
             'CREAR', 'ZA-QA-V2-001', 'Bota Pirma Caballero Modelo 418103',
             '418103', 'PIRMA QA INTEGRACION', 'Hombre', 'Botas',
             '1000', '', '', 'Negro', '5,6,7', '6', '',
-            '', '', '', 'ACTIVO', '', 'OK', '5:2;6:1;7:3',
+            '/uploads/products/qa-openpay-test.webp', '', '', 'ACTIVO', '', 'OK', '5:2;6:1;7:3',
         ];
         $stream = fopen('php://temp', 'w+');
         fputcsv($stream, $headers);
@@ -430,6 +430,120 @@ class ProductInventoryImportTest extends TestCase
         $this->assertDatabaseMissing('products', ['product_code' => 'ZAP-0042']);
     }
 
+
+    public function test_zero_price_catalog_draft_imports_stock_but_remains_invisible_and_unpurchasable(): void
+    {
+        Brand::create(['name' => 'Pirma', 'slug' => 'pirma', 'is_active' => true]);
+        $category = Category::create(['name' => 'Mujer', 'is_active' => true, 'order' => 3]);
+        $headers = implode(',', array_merge($this->headers(), ['STOCK_POR_TALLA']));
+        $csv = $headers . "\n"
+            . 'CREAR,S0380,Calzado Pirma 0248,0248,Pirma,Mujer,,0,,,Negro/Blanco,"2,3,4",6,,,,,ACTIVO,,OK,"2:1;3:2;4:3"' . "\n"
+            . 'CREAR,S0041,Calzado Pirma 0248,0248,Pirma,Mujer,,,,,Negro/Fucsia,"2,3",4,,,,,ACTIVO,,OK,"2:1;3:3"' . "\n";
+        $file = UploadedFile::fake()->createWithContent('pirma-sin-precios.csv', $csv);
+
+        $this->post('/api/admin/products/import/preview', ['file' => $file], [
+            'Accept' => 'application/json',
+        ])->assertOk()->assertJsonPath('valid', true)
+            ->assertJsonPath('summary.draft_products', 2)
+            ->assertJsonPath('summary.ready_products', 0);
+
+        $this->post('/api/admin/products/import/commit', ['file' => $file], [
+            'Accept' => 'application/json',
+        ])->assertOk()->assertJsonPath('summary.drafts', 2)
+            ->assertJsonPath('summary.published', 0)
+            ->assertJsonPath('summary.units', 10);
+
+        foreach (['S0380', 'S0041'] as $code) {
+            $product = Product::where('product_code', $code)->firstOrFail();
+            $this->assertSame('0.00', (string) $product->price);
+            $this->assertTrue((bool) $product->auto_publish);
+            $this->assertFalse((bool) $product->is_active);
+        }
+        $this->assertSame(10, (int) Product::sum('stock'));
+        $this->getJson('/api/products')->assertOk()->assertJsonCount(0, 'data');
+        $this->getJson('/api/products/' . Product::where('product_code', 'S0380')->firstOrFail()->id)
+            ->assertStatus(404);
+
+        // Precio único del modelo: los colores con precio cero reciben el mismo
+        // importe, sin publicarse mientras sigan sin fotografía.
+        $this->putJson('/api/admin/products/model-price', [
+            'brand_id' => Brand::where('name', 'Pirma')->firstOrFail()->id,
+            'category_id' => $category->id,
+            'model' => '0248',
+            'price' => 799,
+        ])->assertOk()->assertJsonPath('summary.updated', 2)
+            ->assertJsonPath('summary.drafts', 2);
+        foreach (['S0380', 'S0041'] as $code) {
+            $this->assertDatabaseHas('products', [
+                'product_code' => $code, 'price' => 799, 'is_active' => false,
+            ]);
+        }
+
+        // Completar la fotografía comercial de un SKU activa solo ese color.
+        $first = Product::where('product_code', 'S0380')->firstOrFail();
+        $first->images = ['/uploads/products/pirma-0248-negro-blanco.webp'];
+        $first->img = '/uploads/products/pirma-0248-negro-blanco.webp';
+        $first->save();
+        $this->postJson('/api/products/' . $first->id, [
+            'price' => 799,
+        ])->assertOk();
+        $this->assertTrue((bool) $first->fresh()->is_active);
+        $this->assertFalse((bool) Product::where('product_code', 'S0041')->firstOrFail()->is_active);
+        $this->getJson('/api/products')->assertOk()->assertJsonCount(1, 'data');
+    }
+
+    public function test_price_is_inherited_from_model_only_when_unambiguous(): void
+    {
+        Brand::create(['name' => 'Pirma', 'slug' => 'pirma', 'is_active' => true]);
+        Category::create(['name' => 'Mujer', 'order' => 3, 'is_active' => true]);
+        $header = implode(',', array_merge($this->headers(), ['STOCK_POR_TALLA']));
+        $data = $header . "\n"
+            . 'CREAR,S0380,Calzado Pirma 0248,0248,Pirma,Mujer,,799,,,Negro/Blanco,3,2,,/uploads/products/s0380.webp,,,ACTIVO,,OK,' . "\n"
+            . 'CREAR,S0041,Calzado Pirma 0248,0248,Pirma,Mujer,,0,,,Negro/Fucsia,3,4,,,,,ACTIVO,,OK,' . "\n"
+            . 'CREAR,S0042,Calzado Pirma 0248,0248,Pirma,Mujer,,,,,,Negro/Negro,3,6,,,,,ACTIVO,,OK,' . "\n";
+        $file = UploadedFile::fake()->createWithContent('precio-compartido.csv', $data);
+        $this->post('/api/admin/products/import/preview', ['file' => $file], [
+            'Accept' => 'application/json',
+        ])->assertOk()->assertJsonPath('valid', true)
+            ->assertJsonPath('summary.ready_products', 1)
+            ->assertJsonPath('summary.draft_products', 2);
+        $this->post('/api/admin/products/import/commit', ['file' => $file], [
+            'Accept' => 'application/json',
+        ])->assertOk()->assertJsonPath('summary.published', 1)
+            ->assertJsonPath('summary.drafts', 2);
+        foreach (['S0380', 'S0041', 'S0042'] as $code) {
+            $this->assertDatabaseHas('products', ['product_code' => $code, 'price' => 799]);
+        }
+    }
+
+    public function test_partial_import_is_explicit_and_never_commits_invalid_groups(): void
+    {
+        $header = implode(',', array_merge($this->headers(), ['STOCK_POR_TALLA']));
+        $csv = $header . "\n"
+            . 'CREAR,S0250,Calzado para inventario,MODEL-1,Angelita,Hombre,Botines,0,,,Negro,4,3,,,,,ACTIVO,,OK,' . "\n"
+            . 'CREAR,S0251,Calzado defectuoso,MODEL-2,Angelita,Hombre,Botines,0,,,Negro,"4,5",3,,,,,ACTIVO,,OK,' . "\n";
+        $file = UploadedFile::fake()->createWithContent('parcial.csv', $csv);
+        $this->post('/api/admin/products/import/preview', ['file' => $file], [
+            'Accept' => 'application/json',
+        ])->assertOk()->assertJsonPath('valid', false)
+            ->assertJsonPath('summary.valid_products', 1);
+
+        $this->post('/api/admin/products/import/commit', ['file' => $file], [
+            'Accept' => 'application/json',
+        ])->assertStatus(422);
+        $this->assertDatabaseCount('products', 0);
+
+        $this->post('/api/admin/products/import/commit', [
+            'file' => $file, 'import_valid_only' => '1',
+        ], ['Accept' => 'application/json'])
+            ->assertOk()->assertJsonPath('summary.created', 1)
+            ->assertJsonPath('summary.skipped', 1);
+        $this->assertDatabaseHas('products', [
+            'product_code' => 'S0250', 'price' => 0, 'is_active' => false,
+        ]);
+        $this->assertDatabaseMissing('products', ['product_code' => 'S0251']);
+    }
+
     public function test_preview_blocks_example_rows_and_duplicate_color_size_variant(): void
     {
         $file = $this->xlsx([
@@ -480,7 +594,7 @@ class ProductInventoryImportTest extends TestCase
         $this->assertSame(10, (int) $product->stock);
         $this->assertSame('1200.00', (string) $product->discounted_price);
         $this->assertSame('oferta', $product->status);
-        $this->assertTrue((bool) $product->is_active);
+        $this->assertFalse((bool) $product->is_active); // Sin fotografía comercial: borrador seguro.
         $this->assertDatabaseCount('product_variant_stocks', 3);
         $this->assertDatabaseHas('product_sizes', [
             'product_id' => $product->id,
