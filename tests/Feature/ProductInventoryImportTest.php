@@ -369,6 +369,67 @@ class ProductInventoryImportTest extends TestCase
         Http::assertSentCount(1);
     }
 
+
+    public function test_legacy_pirma_inventory_codes_are_persisted_exactly_without_generated_prefixes(): void
+    {
+        Category::create([
+            'name' => 'Mujer',
+            'order' => 2,
+            'is_active' => true,
+        ]);
+        Brand::create([
+            'name' => 'Pirma',
+            'slug' => 'pirma',
+            'is_active' => true,
+        ]);
+
+        // Precios de prueba únicamente: se usa base temporal de CI, nunca producción.
+        // Los códigos S0380 / S0041 / S0042 proceden de la libreta del cliente.
+        $headers = array_merge($this->headers(), ['STOCK_POR_TALLA']);
+        $rows = [
+            $headers,
+            ['CREAR', 'S0380', 'Calzado Pirma Modelo 0248', '0248', 'Pirma', 'Mujer', '', '1000', '', '', 'Negro/Blanco', '2,3,4,5,6', '15', '', '', '', '', 'ACTIVO', '', 'OK', '2:1;3:5;4:4;5:4;6:1'],
+            ['CREAR', 'S0041', 'Calzado Pirma Modelo 0248', '0248', 'Pirma', 'Mujer', '', '1000', '', '', 'Negro/Fucsia', '3,4,5', '11', '', '', '', '', 'ACTIVO', '', 'OK', '3:3;4:4;5:4'],
+            ['CREAR', 'S0042', 'Calzado Pirma Modelo 0248', '0248', 'Pirma', 'Mujer', '', '1000', '', '', 'Negro/Negro', '3,4,5,6', '18', '', '', '', '', 'ACTIVO', '', 'OK', '3:6;4:5;5:5;6:2'],
+        ];
+        $stream = fopen('php://temp', 'w+');
+        foreach ($rows as $row) {
+            fputcsv($stream, $row);
+        }
+        rewind($stream);
+        $file = UploadedFile::fake()->createWithContent(
+            'pirma-original-codes-qa.csv',
+            stream_get_contents($stream),
+        );
+        fclose($stream);
+
+        $this->post('/api/admin/products/import/preview', ['file' => $file], [
+            'Accept' => 'application/json',
+        ])->assertOk()->assertJsonPath('valid', true)
+            ->assertJsonPath('summary.products', 3)
+            ->assertJsonPath('summary.variants', 12);
+
+        $this->post('/api/admin/products/import/commit', ['file' => $file], [
+            'Accept' => 'application/json',
+        ])->assertOk()->assertJsonPath('summary.created', 3)
+            ->assertJsonPath('summary.units', 44);
+
+        $this->assertSame(
+            ['S0041', 'S0042', 'S0380'],
+            Product::query()->orderBy('product_code')->pluck('product_code')->all(),
+        );
+        $this->assertSame(44, (int) Product::query()->sum('stock'));
+        $this->assertDatabaseHas('product_variant_stocks', [
+            'product_id' => Product::where('product_code', 'S0380')->firstOrFail()->id,
+            'color' => 'Negro/Blanco',
+            'size' => '2',
+            'stock' => 1,
+        ]);
+        $this->assertDatabaseMissing('products', ['product_code' => 'ZAP-0380']);
+        $this->assertDatabaseMissing('products', ['product_code' => 'ZAP-0041']);
+        $this->assertDatabaseMissing('products', ['product_code' => 'ZAP-0042']);
+    }
+
     public function test_preview_blocks_example_rows_and_duplicate_color_size_variant(): void
     {
         $file = $this->xlsx([
