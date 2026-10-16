@@ -276,49 +276,59 @@ class ProductInventoryImportTest extends TestCase
         ]);
     }
 
-    public function test_commit_accepts_grouped_size_longer_than_ten_characters_without_partial_writes(): void
+    public function test_grouped_sizes_require_explicit_quantities_and_do_not_write(): void
     {
-        $groupedSize = '18,19,20,21';
-        $this->assertGreaterThan(10, mb_strlen($groupedSize));
+        $headers = implode(',', array_merge($this->headers(), ['STOCK_POR_TALLA']));
+        $csv = $headers . "\n"
+            . 'CREAR,ZA-GROUPED-01,Botin agrupado,MODELO,Angelita,Hombre,Botines,1500,,Piel,Negro,"18,19,20,21",4,,,,,ACTIVO,,OK,' . "\n";
+        $file = UploadedFile::fake()->createWithContent('sin-desglose.csv', $csv);
 
-        $csv = implode(',', $this->headers()) . "\n"
-            . 'CREAR,ZA-SIZE-11,Botin talla agrupada,MODELO-11,Angelita,Hombre,Botines,1500,,Piel,Negro,"'
-            . $groupedSize
-            . '",4,,,,,ACTIVO,,OK' . "\n";
+        $this->post('/api/admin/products/import/preview', ['file' => $file], ['Accept' => 'application/json'])
+            ->assertOk()->assertJsonPath('valid', false);
 
-        $file = UploadedFile::fake()->createWithContent('tallas-agrupadas.csv', $csv);
+        $this->post('/api/admin/products/import/commit', ['file' => $file], ['Accept' => 'application/json'])
+            ->assertStatus(422);
+        $this->assertDatabaseMissing('products', ['product_code' => 'ZA-GROUPED-01']);
+    }
 
-        $this->post('/api/admin/products/import/preview', ['file' => $file], [
-            'Accept' => 'application/json',
-        ])
-            ->assertOk()
-            ->assertJsonPath('valid', true)
-            ->assertJsonPath('summary.products', 1);
+    public function test_one_row_import_expands_sizes_into_independent_stock_and_movements(): void
+    {
+        $headers = implode(',', array_merge($this->headers(), ['STOCK_POR_TALLA']));
+        $csv = $headers . "\n"
+            . 'CREAR,ZA-GROUPED-02,Botin por talla,MODELO,Angelita,Hombre,Botines,1500,,Piel,Negro,"18,19,20,21",10,,,,,ACTIVO,,OK,"18:1;19:2;20:3;21:4"' . "\n";
+        $file = UploadedFile::fake()->createWithContent('con-desglose.csv', $csv);
 
-        $response = $this->post('/api/admin/products/import/commit', ['file' => $file], [
-            'Accept' => 'application/json',
-        ]);
+        $this->post('/api/admin/products/import/preview', ['file' => $file], ['Accept' => 'application/json'])
+            ->assertOk()->assertJsonPath('valid', true)
+            ->assertJsonPath('summary.variants', 4)
+            ->assertJsonPath('groups.0.total_stock', 10);
 
-        $response
-            ->assertOk()
-            ->assertJsonPath('success', true)
-            ->assertJsonPath('summary.created', 1)
-            ->assertJsonPath('summary.units', 4);
+        $this->post('/api/admin/products/import/commit', ['file' => $file], ['Accept' => 'application/json'])
+            ->assertOk()->assertJsonPath('summary.created', 1)
+            ->assertJsonPath('summary.variants', 4)
+            ->assertJsonPath('summary.units', 10);
 
-        $product = Product::where('product_code', 'ZA-SIZE-11')->firstOrFail();
-        $this->assertSame(4, (int) $product->stock);
-        $this->assertDatabaseHas('product_variant_stocks', [
-            'product_id' => $product->id,
-            'color' => 'Negro',
-            'size' => $groupedSize,
-            'stock' => 4,
-        ]);
-        $this->assertDatabaseHas('inventory_movements', [
-            'product_id' => $product->id,
-            'size' => $groupedSize,
-            'previous_stock' => 0,
-            'new_stock' => 4,
-        ]);
+        $product = Product::where('product_code', 'ZA-GROUPED-02')->firstOrFail();
+        foreach (['18' => 1, '19' => 2, '20' => 3, '21' => 4] as $size => $stock) {
+            $this->assertDatabaseHas('product_variant_stocks', [
+                'product_id' => $product->id, 'color' => 'Negro', 'size' => (string) $size, 'stock' => $stock,
+            ]);
+            $this->assertDatabaseHas('inventory_movements', [
+                'product_id' => $product->id, 'size' => (string) $size, 'new_stock' => $stock,
+            ]);
+        }
+        $this->assertSame(10, (int) $product->stock);
+    }
+
+    public function test_mismatched_total_blocks_import_without_partial_writes(): void
+    {
+        $headers = implode(',', array_merge($this->headers(), ['STOCK_POR_TALLA']));
+        $csv = $headers . "\n"
+            . 'CREAR,ZA-GROUPED-03,Botin invalido,MODELO,Angelita,Hombre,Botines,1500,,Piel,Negro,"18,19",9,,,,,ACTIVO,,OK,"18:1;19:2"' . "\n";
+        $file = UploadedFile::fake()->createWithContent('total-incorrecto.csv', $csv);
+        $this->post('/api/admin/products/import/preview', ['file' => $file], ['Accept' => 'application/json'])
+            ->assertOk()->assertJsonPath('valid', false);
+        $this->assertDatabaseMissing('products', ['product_code' => 'ZA-GROUPED-03']);
     }
 
     public function test_update_requires_existing_code_and_replaces_variant_snapshot(): void

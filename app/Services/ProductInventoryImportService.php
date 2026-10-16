@@ -83,7 +83,7 @@ class ProductInventoryImportService
                 [
                     'ACCIÓN*', 'CÓDIGO_PRODUCTO*', 'NOMBRE*', 'MODELO', 'MARCA*',
                     'CATEGORÍA', 'SUBCATEGORÍA', 'PRECIO*', 'PRECIO_OFERTA', 'MATERIAL',
-                    'COLOR*', 'TALLA*', 'STOCK*', 'DESCRIPCIÓN', 'IMAGEN_PRINCIPAL',
+                    'COLOR*', 'TALLA*', 'STOCK*', 'STOCK_POR_TALLA', 'DESCRIPCIÓN', 'IMAGEN_PRINCIPAL',
                     'IMAGEN_2', 'IMAGEN_3', 'ESTADO*', 'OBSERVACIONES', 'VALIDACIÓN',
                 ],
             ];
@@ -550,7 +550,8 @@ class ProductInventoryImportService
             'material' => ['material'],
             'color' => ['color', 'colores', 'colors'],
             'talla' => ['talla', 'tallas', 'size', 'sizes'],
-            'stock' => ['stock', 'stock_talla', 'stock_por_talla', 'cantidad', 'inventario'],
+            'stock' => ['stock', 'stock_talla', 'cantidad', 'inventario'],
+            'stock_por_talla' => ['stock_por_talla', 'desglose_tallas', 'existencias_por_talla'],
             'descripcion' => ['descripcion', 'description'],
             'imagen_principal' => ['imagen_principal', 'imagen_1', 'img'],
             'imagen_2' => ['imagen_2'],
@@ -706,6 +707,52 @@ class ProductInventoryImportService
                 $errors[] = 'STOCK debe ser un entero mayor o igual a 0';
             }
 
+            // La lista de tallas nunca se persiste como una talla literal.
+            // Requiere desglose explícito para evitar asignar stock arbitrariamente.
+            $breakdown = trim((string) ($raw['stock_por_talla'] ?? ''));
+            $sizeTokens = array_map('trim', explode(',', $size));
+            $expandedVariants = [];
+            if ($breakdown === '' && count($sizeTokens) > 1) {
+                $errors[] = 'STOCK_POR_TALLA es obligatorio cuando TALLA contiene varias tallas (ej. 2:3;3:4;4:2)';
+            } elseif ($breakdown !== '') {
+                $seenSizes = [];
+                $quantities = [];
+                foreach (explode(';', $breakdown) as $entry) {
+                    $entry = trim($entry);
+                    if (!preg_match('/^([^:;]+):([0-9]+)$/u', $entry, $parts)) {
+                        $errors[] = 'STOCK_POR_TALLA inválido: usa TALLA:CANTIDAD separadas por punto y coma';
+                        continue;
+                    }
+                    $entrySize = trim($parts[1]);
+                    $entryKey = $this->normalizeText($entrySize);
+                    if ($entrySize === '' || mb_strlen($entrySize) > 255 || isset($seenSizes[$entryKey])) {
+                        $errors[] = 'STOCK_POR_TALLA contiene una talla vacía, repetida o demasiado larga';
+                        continue;
+                    }
+                    $seenSizes[$entryKey] = true;
+                    $quantity = filter_var($parts[2], FILTER_VALIDATE_INT);
+                    if ($quantity === false || $quantity < 0) {
+                        $errors[] = 'STOCK_POR_TALLA contiene una cantidad inválida';
+                        continue;
+                    }
+                    $quantities[$entryKey] = $quantity;
+                    $expandedVariants[] = ['color' => $color, 'size' => $entrySize, 'stock' => $quantity];
+                }
+                $declaredSizes = array_map(fn ($item) => $this->normalizeText($item), $sizeTokens);
+                $declaredSizes = array_filter($declaredSizes, fn ($item) => $item !== '');
+                if (count($declaredSizes) !== count($sizeTokens)
+                    || count(array_unique($declaredSizes)) !== count($declaredSizes)
+                    || array_diff($declaredSizes, array_keys($quantities))
+                    || array_diff(array_keys($quantities), $declaredSizes)) {
+                    $errors[] = 'Las tallas de STOCK_POR_TALLA deben coincidir exactamente con TALLA';
+                }
+                if ($stock !== null && array_sum($quantities) !== $stock) {
+                    $errors[] = 'STOCK no coincide con la suma de STOCK_POR_TALLA';
+                }
+            } elseif ($size !== '') {
+                $expandedVariants[] = ['color' => $color, 'size' => $size, 'stock' => $stock ?? 0];
+            }
+
             if (!in_array($state, ['ACTIVO', 'INACTIVO', 'ACTIVE', 'INACTIVE'], true)) {
                 $errors[] = 'ESTADO debe ser ACTIVO o INACTIVO';
             }
@@ -748,6 +795,8 @@ class ProductInventoryImportService
                 'color' => $color,
                 'size' => $size,
                 'stock' => $stock ?? 0,
+                'stock_por_talla' => trim((string) ($raw['stock_por_talla'] ?? '')),
+                'expanded_variants' => $expandedVariants,
                 'description' => $description,
                 'images' => array_values(array_unique($images)),
                 'is_active' => $isActive,
@@ -781,11 +830,13 @@ class ProductInventoryImportService
             $seenVariants = [];
 
             foreach ($groupRows as $row) {
-                $variantKey = $this->normalizeText($row['color']) . '|' . $this->normalizeText($row['size']);
-                if ($variantKey !== '|' && isset($seenVariants[$variantKey])) {
-                    $groupErrors[] = 'Variante duplicada: ' . $row['color'] . ' / talla ' . $row['size'];
+                foreach ($row['expanded_variants'] as $variant) {
+                    $variantKey = $this->variantKey($variant['color'], $variant['size']);
+                    if (isset($seenVariants[$variantKey])) {
+                        $groupErrors[] = 'Variante duplicada: ' . $variant['color'] . ' / talla ' . $variant['size'];
+                    }
+                    $seenVariants[$variantKey] = true;
                 }
-                $seenVariants[$variantKey] = true;
                 $groupWarnings = array_merge($groupWarnings, $row['warnings']);
             }
 
@@ -832,15 +883,6 @@ class ProductInventoryImportService
                 if ($row['color'] !== '' && !in_array($row['color'], $colors, true)) {
                     $colors[] = $row['color'];
                 }
-                if ($row['size'] !== '' && !in_array($row['size'], $sizes, true)) {
-                    $sizes[] = $row['size'];
-                }
-                if ($row['color'] !== '' && $row['size'] !== '') {
-                    $colorSizes[$row['color']] ??= [];
-                    if (!in_array($row['size'], $colorSizes[$row['color']], true)) {
-                        $colorSizes[$row['color']][] = $row['size'];
-                    }
-                }
                 if ($row['images']) {
                     $colorImages[$row['color']] = array_values(array_unique(array_merge(
                         $colorImages[$row['color']] ?? [],
@@ -849,13 +891,17 @@ class ProductInventoryImportService
                     $allImages = array_values(array_unique(array_merge($allImages, $row['images'])));
                 }
 
-                if ($row['color'] !== '' && $row['size'] !== '') {
-                    $variants[] = [
-                        'color' => $row['color'],
-                        'size' => $row['size'],
-                        'stock' => (int) $row['stock'],
-                    ];
-                    $totalStock += (int) $row['stock'];
+                foreach ($row['expanded_variants'] as $variant) {
+                    $variantSize = $variant['size'];
+                    if (!in_array($variantSize, $sizes, true)) {
+                        $sizes[] = $variantSize;
+                    }
+                    $colorSizes[$variant['color']] ??= [];
+                    if (!in_array($variantSize, $colorSizes[$variant['color']], true)) {
+                        $colorSizes[$variant['color']][] = $variantSize;
+                    }
+                    $variants[] = $variant;
+                    $totalStock += (int) $variant['stock'];
                 }
             }
 
@@ -1174,7 +1220,7 @@ class ProductInventoryImportService
         foreach ([
             'accion', 'codigo_producto', 'nombre', 'modelo', 'marca', 'categoria',
             'subcategoria', 'precio', 'precio_oferta', 'material', 'color', 'talla',
-            'stock', 'descripcion', 'imagen_principal', 'imagen_2', 'imagen_3', 'estado',
+            'stock', 'stock_por_talla', 'descripcion', 'imagen_principal', 'imagen_2', 'imagen_3', 'estado',
         ] as $field) {
             if (trim((string) ($row[$field] ?? '')) !== '') {
                 return true;

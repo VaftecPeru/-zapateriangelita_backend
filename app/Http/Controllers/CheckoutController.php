@@ -120,6 +120,10 @@ class CheckoutController extends Controller
                                 ->where('size', $item['size'])
                                 ->first();
 
+                            if (!$variantRow && ProductVariantStock::where('product_id', $product->id)->exists()) {
+                                abort(422, "La variante de color y talla seleccionada no está disponible.");
+                            }
+
                             if ($variantRow && $quantity > (int) $variantRow->stock) {
                                 abort(422, "Stock insuficiente para '{$product->name}', color {$item['color']}, talla {$item['size']}. Disponible: {$variantRow->stock}.");
                             }
@@ -759,6 +763,10 @@ class CheckoutController extends Controller
                             ->where('size', $item->size)
                             ->lockForUpdate()
                             ->first();
+
+                        if (!$variantRow && ProductVariantStock::where('product_id', $product->id)->exists()) {
+                            return "La variante de color y talla seleccionada no está disponible.";
+                        }
 
                         if ($variantRow && (int) $variantRow->stock < $quantity) {
                             return "Stock insuficiente para '{$product->name}', color {$item->color}, talla {$item->size}. Disponible: {$variantRow->stock}.";
