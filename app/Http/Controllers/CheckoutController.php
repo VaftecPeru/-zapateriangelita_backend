@@ -107,6 +107,11 @@ class CheckoutController extends Controller
                         abort(404, 'Producto no encontrado.');
                     }
 
+                    if (!$product->is_active || (float) $product->price <= 0
+                        || trim((string) $product->img) === '') {
+                        abort(422, 'Este producto está pendiente de publicación y no puede comprarse.');
+                    }
+
                     $quantity = (int) $item['quantity'];
                     $masterStock = (int) ($product->stock ?? 0);
 
