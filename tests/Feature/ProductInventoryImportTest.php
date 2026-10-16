@@ -490,6 +490,12 @@ class ProductInventoryImportTest extends TestCase
         $this->assertTrue((bool) $first->fresh()->is_active);
         $this->assertFalse((bool) Product::where('product_code', 'S0041')->firstOrFail()->is_active);
         $this->getJson('/api/products')->assertOk()->assertJsonCount(1, 'data');
+
+        // Desactivar la marca evita exposición incluso cuando el producto
+        // conservaba is_active=true tras la publicación inicial.
+        Brand::where('name', 'Pirma')->firstOrFail()->update(['is_active' => false]);
+        $this->getJson('/api/products')->assertOk()->assertJsonCount(0, 'data');
+        $this->getJson('/api/products/' . $first->id)->assertStatus(404);
     }
 
     public function test_price_is_inherited_from_model_only_when_unambiguous(): void
