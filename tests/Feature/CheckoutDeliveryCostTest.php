@@ -135,6 +135,7 @@ class CheckoutDeliveryCostTest extends TestCase
             'name' => 'Zapato de prueba',
             'price' => 500,
             'stock' => 10,
+            'is_active' => true,
         ]);
 
         $deliveryResponse = $this->getJson('/api/checkout/delivery-cost')
