@@ -735,6 +735,55 @@ class ProductController extends Controller
         }
     }
 
+    /**
+     * Registra un único precio MXN para un modelo en distintos colores.
+     * Únicamente rellena precios en cero: nunca reemplaza precios confirmados.
+     */
+    public function assignModelPrice(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'brand_id' => ['required', 'integer', 'exists:brands,id'],
+            'category_id' => ['required', 'integer', 'exists:categories,id'],
+            'model' => ['required', 'string', 'max:120'],
+            'price' => ['required', 'numeric', 'gt:0'],
+        ]);
+
+        $result = DB::transaction(function () use ($validated) {
+            $products = Product::query()
+                ->where('brand_id', $validated['brand_id'])
+                ->where('category_id', $validated['category_id'])
+                ->where('model', trim($validated['model']))
+                ->where('auto_publish', true)
+                ->where('price', '<=', 0)
+                ->lockForUpdate()->get();
+            $published = 0;
+            $drafts = 0;
+            foreach ($products as $product) {
+                $product->price = (float) $validated['price'];
+                $product->discounted_price = null;
+                $product->discount = null;
+                $product->save();
+                app(ProductPublicationService::class)->synchronize($product);
+                if ($product->fresh()->is_active) {
+                    $published++;
+                } else {
+                    $drafts++;
+                }
+            }
+            return [
+                'updated' => $products->count(),
+                'published' => $published,
+                'drafts' => $drafts,
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Precio aplicado al modelo; los productos incompletos siguen en borrador.',
+            'summary' => $result,
+        ]);
+    }
+
     public function destroy(Product $product): JsonResponse
     {
         $images = is_array($product->images) ? $product->images : [];
