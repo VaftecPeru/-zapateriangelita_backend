@@ -318,16 +318,20 @@ class ProductInventoryImportTest extends TestCase
         $token = $orderResponse->json('checkout_token');
 
         Http::preventStrayRequests();
-        Http::fake([
-            'sandbox-api.openpay.mx/*' => Http::response([
+        Http::fake(function ($request) {
+            $payload = $request->data();
+            return Http::response([
                 'id' => 'qa_mock_transaction_001',
+                'order_id' => $payload['order_id'],
+                'amount' => $payload['amount'],
+                'currency' => 'MXN',
                 'status' => 'in_progress',
                 'payment_method' => [
                     'type' => 'redirect',
                     'url' => 'https://sandbox-api.openpay.mx/qa-mock-3ds',
                 ],
-            ], 200),
-        ]);
+            ], 200);
+        });
 
         $this->postJson('/api/checkout/payments/openpay/charge', [
             'order_id' => $orderId,
