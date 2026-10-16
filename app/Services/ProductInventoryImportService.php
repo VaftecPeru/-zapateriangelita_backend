@@ -27,7 +27,6 @@ class ProductInventoryImportService
         'codigo_producto',
         'nombre',
         'marca',
-        'precio',
         'color',
         'talla',
         'stock',
@@ -152,9 +151,16 @@ class ProductInventoryImportService
             $updated = 0;
             $variants = 0;
             $units = 0;
+            $published = 0;
+            $drafts = 0;
 
             foreach ($preview['groups'] as $group) {
                 $product = $this->persistGroup($group, $userId);
+                if ($product->is_active) {
+                    $published++;
+                } else {
+                    $drafts++;
+                }
 
                 if ($group['action'] === 'CREAR') {
                     $created++;
@@ -166,7 +172,7 @@ class ProductInventoryImportService
                 $units += (int) $group['total_stock'];
             }
 
-            return compact('created', 'updated', 'variants', 'units');
+            return compact('created', 'updated', 'variants', 'units', 'published', 'drafts');
         });
 
         return [
@@ -587,6 +593,7 @@ class ProductInventoryImportService
             ->keyBy(fn ($product) => $this->normalizeText($product->product_code));
 
         $groupDefaults = $this->generalDefaultsByCode($rows);
+        $sharedModelPrices = $this->sharedPricesByModel($rows, $mappings);
         $normalizedRows = [];
         $meaningfulCount = 0;
 
@@ -632,7 +639,22 @@ class ProductInventoryImportService
             $validation = trim((string) ($raw['validacion'] ?? ''));
             $state = mb_strtoupper($this->normalizeText((string) $generalValue('estado')));
 
-            $price = $this->decimalValue($generalValue('precio'));
+            $rawPrice = $generalValue('precio');
+            $price = $this->decimalValue($rawPrice);
+            if (trim((string) ($rawPrice ?? '')) !== '' && ($price === null || $price < 0)) {
+                $errors[] = 'PRECIO debe ser un número mayor o igual a 0';
+            }
+            // Precio único del modelo: se hereda a todos sus colores si el
+            // archivo contiene un único precio positivo para marca + categoría + modelo.
+            // Si varios colores declaran precios diferentes, no se hereda.
+            if (($price === null || $price === 0.0) && $model !== '' && $brandName !== '') {
+                $modelKey = $this->modelPriceKey($brandName, $categoryName, $model);
+                if (isset($sharedModelPrices[$modelKey]) && $sharedModelPrices[$modelKey] > 0) {
+                    $price = $sharedModelPrices[$modelKey];
+                    $warnings[] = 'Precio MXN aplicado desde el modelo ' . $model . ' a este color';
+                }
+            }
+            $price ??= 0.0;
             $offerSource = $generalValue('precio_oferta');
             $offerRaw = trim((string) ($offerSource ?? ''));
             $offerPrice = $offerRaw === '' ? null : $this->decimalValue($offerSource);
@@ -688,8 +710,8 @@ class ProductInventoryImportService
                 $errors[] = 'SUBCATEGORÍA requiere CATEGORÍA para establecer su relación';
             }
 
-            if ($price === null || $price <= 0) {
-                $errors[] = 'PRECIO debe ser numérico y mayor que 0';
+            if ($price == 0.0) {
+                $warnings[] = 'Precio pendiente: se importa con 0 MXN y permanece en borrador';
             }
             if ($offerRaw !== '' && ($offerPrice === null || $offerPrice <= 0)) {
                 $errors[] = 'PRECIO_OFERTA debe ser numérico y mayor que 0';
@@ -764,10 +786,12 @@ class ProductInventoryImportService
                 $expandedVariants[] = ['color' => $color, 'size' => $size, 'stock' => $stock ?? 0];
             }
 
-            if (!in_array($state, ['ACTIVO', 'INACTIVO', 'ACTIVE', 'INACTIVE'], true)) {
-                $errors[] = 'ESTADO debe ser ACTIVO o INACTIVO';
+            if (!in_array($state, ['ACTIVO', 'INACTIVO', 'ACTIVE', 'INACTIVE', 'BORRADOR', 'DRAFT'], true)) {
+                $errors[] = 'ESTADO debe ser ACTIVO, INACTIVO o BORRADOR';
             }
-            $isActive = in_array($state, ['ACTIVO', 'ACTIVE'], true);
+            $autoPublish = in_array($state, ['ACTIVO', 'ACTIVE'], true);
+            $isActive = false; // Nunca publicar antes de guardar y validar inventario.
+
 
             if (str_contains($this->normalizeText($observations), 'ejemplo')) {
                 $errors[] = 'Elimina las filas de EJEMPLO antes de importar';
@@ -786,6 +810,10 @@ class ProductInventoryImportService
                 } else {
                     $images[] = $normalizedImage;
                 }
+            }
+
+            if ($images === []) {
+                $warnings[] = 'Imagen comercial pendiente: el producto permanecerá en borrador';
             }
 
             $normalizedRows[] = [
@@ -811,6 +839,7 @@ class ProductInventoryImportService
                 'description' => $description,
                 'images' => array_values(array_unique($images)),
                 'is_active' => $isActive,
+                'auto_publish' => $autoPublish,
                 'observations' => $observations,
                 'validation' => $validation,
                 'valid' => false,
@@ -931,7 +960,14 @@ class ProductInventoryImportService
                 'offer_price' => $first['offer_price'],
                 'material' => $first['material'],
                 'description' => $first['description'],
-                'is_active' => $first['is_active'],
+                // Estado previsto para la vista previa. La decisión final se
+                // revalida sobre el producto persistido mediante PublicationService.
+                'is_active' => $first['auto_publish']
+                    && $first['price'] > 0 && $totalStock > 0
+                    && count($allImages) > 0
+                    && $first['brand_id'] && $first['category_id']
+                    && $first['model'] !== '',
+                'auto_publish' => $first['auto_publish'],
                 'colors' => $colors,
                 'sizes' => $sizes,
                 'color_sizes' => $colorSizes,
@@ -949,6 +985,8 @@ class ProductInventoryImportService
         $errorRows = count(array_filter($normalizedRows, fn ($row) => !$row['valid']));
         $warningCount = array_sum(array_map(fn ($row) => count($row['warnings']), $normalizedRows));
         $validGroups = count(array_filter($groups, fn ($group) => $group['valid']));
+        $readyGroups = count(array_filter($groups, fn ($group) => $group['valid'] && $group['is_active']));
+        $draftGroups = $validGroups - $readyGroups;
 
         return [
             'valid' => $errorRows === 0 && $validGroups > 0,
@@ -959,6 +997,8 @@ class ProductInventoryImportService
                 'products' => count($groups),
                 'variants' => array_sum(array_map(fn ($group) => count($group['variants']), $groups)),
                 'valid_products' => $validGroups,
+                'ready_products' => $readyGroups,
+                'draft_products' => $draftGroups,
                 'error_rows' => $errorRows,
                 'warnings' => $warningCount,
             ],
@@ -1026,7 +1066,8 @@ class ProductInventoryImportService
             'material' => $group['material'] !== '' ? $group['material'] : null,
             'description' => $group['description'] !== '' ? $group['description'] : null,
             'status' => $marketingStatus,
-            'is_active' => (bool) $group['is_active'],
+            'is_active' => false,
+            'auto_publish' => (bool) $group['auto_publish'],
             'color_sizes' => $group['color_sizes'] ?: null,
         ];
 
@@ -1055,6 +1096,7 @@ class ProductInventoryImportService
             $group['action'],
         );
 
+        app(ProductPublicationService::class)->synchronize($product);
         return $product->fresh();
     }
 
@@ -1068,7 +1110,7 @@ class ProductInventoryImportService
         ?int $userId,
         string $action,
     ): void {
-        $reason = 'Importación masiva ' . $action . ' XLSX/CSV V1';
+        $reason = 'Importación masiva ' . $action . ' XLSX/CSV V2';
 
         if ($productExisted && !$hadVariantInventory) {
             $newTotalStock = array_sum(array_map(fn ($variant) => (int) $variant['stock'], $newVariants));
@@ -1197,7 +1239,7 @@ class ProductInventoryImportService
     {
         foreach ([
             'action', 'name', 'model', 'brand', 'category', 'subcategory',
-            'material', 'description', 'is_active',
+            'material', 'description', 'auto_publish',
         ] as $field) {
             if ($this->normalizeComparable($left[$field] ?? null) !== $this->normalizeComparable($right[$field] ?? null)) {
                 return false;
@@ -1285,6 +1327,42 @@ class ProductInventoryImportService
         }
 
         return null;
+    }
+
+    /** Precio común por marca + categoría + modelo. Si hay precios diferentes,
+     * cada color mantiene el suyo y los faltantes quedan en cero.
+     */
+    private function sharedPricesByModel(array $rows, array $mappings): array
+    {
+        $values = [];
+        foreach ($rows as $entry) {
+            $data = $entry['data'] ?? [];
+            $brand = $this->catalogMappedName(trim((string) ($data['marca'] ?? '')), $mappings['brands'] ?? []);
+            $category = $this->canonicalCategoryName($this->catalogMappedName(
+                trim((string) ($data['categoria'] ?? '')), $mappings['categories'] ?? []
+            ));
+            $model = trim((string) ($data['modelo'] ?? ''));
+            $price = $this->decimalValue($data['precio'] ?? null);
+            if ($brand === '' || $model === '' || $price === null || $price <= 0) {
+                continue;
+            }
+            $key = $this->modelPriceKey($brand, $category, $model);
+            $values[$key][number_format($price, 2, '.', '')] = $price;
+        }
+
+        $shared = [];
+        foreach ($values as $key => $prices) {
+            if (count($prices) === 1) {
+                $shared[$key] = reset($prices);
+            }
+        }
+        return $shared;
+    }
+
+    private function modelPriceKey(string $brand, string $category, string $model): string
+    {
+        return $this->brandAlias($brand) . '|' . $this->categoryAlias($category)
+            . '|' . $this->normalizeText($model);
     }
 
     private function generalDefaultsByCode(array $rows): array
