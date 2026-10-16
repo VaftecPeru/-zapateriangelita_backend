@@ -5,10 +5,13 @@ namespace Tests\Feature;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\Order;
+use App\Services\CheckoutStockService;
 use App\Models\Subcategory;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 use ZipArchive;
@@ -206,6 +209,150 @@ class ProductInventoryImportTest extends TestCase
     {
         $this->postJson('/api/categories', ['name' => 'hombre'])->assertStatus(422);
         $this->assertDatabaseCount('categories', Category::query()->count());
+    }
+
+
+    /**
+     * QA aislado: Paso 0 -> CSV V2 -> variantes SQLite -> checkout ->
+     * pago simulado -> liberación idempotente de existencias.
+     * Nunca utiliza tarjetas ni endpoints reales de Openpay.
+     */
+    public function test_e2e_catalog_preflight_import_checkout_and_release_without_external_charge(): void
+    {
+        config([
+            'services.payment_service.enabled' => false,
+            'openpay.currency' => 'MXN',
+            'openpay.merchant_id' => 'qa_dummy_merchant',
+            'openpay.public_key' => 'qa_dummy_public',
+            'openpay.private_key' => 'qa_dummy_private',
+            'openpay.sandbox' => true,
+            'openpay.environment' => 'sandbox',
+            'openpay.base_url' => 'https://sandbox-api.openpay.mx',
+            'openpay.redirect_url' => 'https://example.test/checkout',
+        ]);
+
+        $brand = $this->postJson('/api/brands', [
+            'name' => 'PIRMA QA INTEGRACION', 'is_active' => false,
+        ])->assertCreated();
+        $subcategory = $this->postJson('/api/subcategories', [
+            'category_id' => Category::where('name', 'Hombre')->firstOrFail()->id,
+            'name' => 'Botas', 'is_active' => false,
+        ])->assertCreated();
+
+        $headers = array_merge($this->headers(), ['STOCK_POR_TALLA']);
+        $values = [
+            'CREAR', 'ZA-QA-V2-001', 'Bota Pirma Caballero Modelo 418103',
+            '418103', 'PIRMA QA INTEGRACION', 'Hombre', 'Botas',
+            '1000', '', '', 'Negro', '5,6,7', '6', '',
+            '', '', '', 'ACTIVO', '', 'OK', '5:2;6:1;7:3',
+        ];
+        $stream = fopen('php://temp', 'w+');
+        fputcsv($stream, $headers);
+        fputcsv($stream, $values);
+        rewind($stream);
+        $csv = stream_get_contents($stream);
+        fclose($stream);
+        $file = UploadedFile::fake()->createWithContent('angelita-qa-v2.csv', $csv);
+
+        $this->post('/api/admin/products/import/preview', ['file' => $file], [
+            'Accept' => 'application/json',
+        ])->assertOk()->assertJsonPath('valid', false);
+        $this->assertDatabaseMissing('products', ['product_code' => 'ZA-QA-V2-001']);
+
+        $this->putJson('/api/brands/' . $brand->json('id'), [
+            'is_active' => true,
+        ])->assertOk();
+        $this->putJson('/api/subcategories/' . $subcategory->json('id'), [
+            'is_active' => true,
+        ])->assertOk();
+
+        $this->post('/api/admin/products/import/preview', ['file' => $file], [
+            'Accept' => 'application/json',
+        ])->assertOk()->assertJsonPath('valid', true)
+            ->assertJsonPath('summary.variants', 3)
+            ->assertJsonPath('groups.0.total_stock', 6);
+        $this->post('/api/admin/products/import/commit', ['file' => $file], [
+            'Accept' => 'application/json',
+        ])->assertOk()->assertJsonPath('summary.created', 1)
+            ->assertJsonPath('summary.units', 6);
+
+        $product = Product::where('product_code', 'ZA-QA-V2-001')->firstOrFail();
+        $this->assertSame(6, (int) $product->stock);
+        foreach (['5' => 2, '6' => 1, '7' => 3] as $size => $units) {
+            $this->assertDatabaseHas('product_variant_stocks', [
+                'product_id' => $product->id,
+                'color' => 'Negro', 'size' => (string) $size, 'stock' => $units,
+            ]);
+        }
+
+        $cart = [
+            'customer_name' => 'Administrador QA',
+            'customer_email' => auth()->user()->email,
+            'shipping_address' => 'Calle QA 123',
+            'shipping_city' => 'Pachuca',
+            'shipping_country' => 'México',
+            'shipping_state' => 'Hidalgo',
+            'shipping_municipality' => 'Pachuca',
+            'shipping_postal_code' => '42000',
+            'shipping_phone' => '+525512345678',
+            'payment_method' => 'openpay',
+        ];
+
+        // La selección de variante que no existe debe bloquearse antes del pago.
+        $this->postJson('/api/checkout/orders', array_merge($cart, [
+            'items' => [[
+                'product_id' => $product->id, 'size' => '6',
+                'color' => 'Rojo', 'quantity' => 1,
+            ]],
+        ]))->assertStatus(422);
+        $this->assertSame(6, (int) $product->fresh()->stock);
+
+        $orderResponse = $this->postJson('/api/checkout/orders', array_merge($cart, [
+            'items' => [[
+                'product_id' => $product->id, 'size' => '6',
+                'color' => 'Negro', 'quantity' => 1,
+            ]],
+        ]))->assertCreated();
+
+        $orderId = (int) $orderResponse->json('order_id');
+        $token = $orderResponse->json('checkout_token');
+
+        Http::preventStrayRequests();
+        Http::fake([
+            'sandbox-api.openpay.mx/*' => Http::response([
+                'id' => 'qa_mock_transaction_001',
+                'status' => 'in_progress',
+                'payment_method' => [
+                    'type' => 'redirect',
+                    'url' => 'https://sandbox-api.openpay.mx/qa-mock-3ds',
+                ],
+            ], 200),
+        ]);
+
+        $this->postJson('/api/checkout/payments/openpay/charge', [
+            'order_id' => $orderId,
+            'checkout_token' => $token,
+            'token_id' => 'qa_synthetic_token',
+            'device_session_id' => 'qa_synthetic_session',
+        ])->assertStatus(202)
+            ->assertJsonPath('payment_status', 'processing');
+
+        $this->assertSame(5, (int) $product->fresh()->stock);
+        $this->assertDatabaseHas('product_variant_stocks', [
+            'product_id' => $product->id, 'color' => 'Negro', 'size' => '6', 'stock' => 0,
+        ]);
+        $this->assertDatabaseHas('product_sizes', [
+            'product_id' => $product->id, 'size' => '6', 'stock' => 0,
+        ]);
+        $order = Order::findOrFail($orderId);
+        app(CheckoutStockService::class)->release($order, 'QA: pago simulado no finalizado');
+        app(CheckoutStockService::class)->release($order, 'QA: reintento idempotente');
+        $this->assertSame(6, (int) $product->fresh()->stock);
+        $this->assertDatabaseHas('product_variant_stocks', [
+            'product_id' => $product->id, 'color' => 'Negro', 'size' => '6', 'stock' => 1,
+        ]);
+        $this->assertSame('failed', $order->fresh()->payment_status);
+        Http::assertSentCount(1);
     }
 
     public function test_preview_blocks_example_rows_and_duplicate_color_size_variant(): void
