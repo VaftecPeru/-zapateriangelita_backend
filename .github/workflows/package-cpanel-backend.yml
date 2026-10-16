@@ -1,0 +1,93 @@
+name: Package cPanel backend (no deploy)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout approved source
+        uses: actions/checkout@v4
+
+      - name: PHP 8.2 production extensions
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: composer:v2
+          extensions: mbstring, xml, curl, intl, zip, pdo_mysql, pdo_sqlite, fileinfo
+          coverage: none
+
+      - name: Validate lockfile
+        run: composer validate --no-check-publish --strict
+
+      - name: Build production vendor
+        run: composer install --no-dev --prefer-dist --no-progress --no-interaction --optimize-autoloader --no-scripts
+
+      - name: Verify Laravel runtime files
+        run: |
+          test -f vendor/autoload.php
+          test -f artisan
+          test -f routes/api.php
+          test -f public/index.php
+          php -l app/Http/Controllers/ProductImportController.php
+          php -l app/Services/ProductInventoryImportService.php
+          php -l app/Http/Controllers/CheckoutController.php
+
+      - name: Prepare sanitized package
+        run: |
+          set -euo pipefail
+          mkdir -p package/backend
+          rsync -a ./ package/backend/ \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='.env' \
+            --exclude='.env.*' \
+            --exclude='node_modules' \
+            --exclude='tests' \
+            --exclude='docs' \
+            --exclude='microservices' \
+            --exclude='docker-compose.yml' \
+            --exclude='phpunit.xml' \
+            --exclude='*.sqlite' \
+            --exclude='*.sqlite3' \
+            --exclude='storage/logs/**' \
+            --exclude='storage/framework/cache/**' \
+            --exclude='storage/framework/sessions/**' \
+            --exclude='storage/framework/views/**' \
+            --exclude='bootstrap/cache/*.php' \
+            --exclude='package'
+          mkdir -p package/backend/storage/logs \
+                   package/backend/storage/framework/cache/data \
+                   package/backend/storage/framework/sessions \
+                   package/backend/storage/framework/views \
+                   package/backend/bootstrap/cache
+          touch package/backend/storage/logs/.gitkeep \
+                package/backend/storage/framework/cache/data/.gitkeep \
+                package/backend/storage/framework/sessions/.gitkeep \
+                package/backend/storage/framework/views/.gitkeep \
+                package/backend/bootstrap/cache/.gitkeep
+          test ! -f package/backend/.env
+          test -f package/backend/vendor/autoload.php
+          test -f package/backend/public/index.php
+          test -f package/backend/.htaccess
+          cd package
+          zip -qr ../angelita-backend-main-cpanel-vendor.zip backend
+          cd ..
+          sha256sum angelita-backend-main-cpanel-vendor.zip > SHA256SUMS.txt
+          echo "Production ZIP prepared without .env; no deploy was performed."
+
+      - name: Upload backend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: angelita-backend-main-cpanel-vendor
+          path: |
+            angelita-backend-main-cpanel-vendor.zip
+            SHA256SUMS.txt
+          retention-days: 14
+          if-no-files-found: error
