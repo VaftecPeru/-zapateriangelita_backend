@@ -82,6 +82,25 @@ class CheckoutController extends Controller
                 $subtotal = 0.0;
                 $orderItems = [];
 
+                // Agrupamos cantidades solicitadas: dos líneas iguales del carrito
+                // nunca pueden agotar una talla por separado y sobre-venderla juntas.
+                $demandProducts = [];
+                $demandSizes = [];
+                $demandVariants = [];
+                foreach ($validated['items'] as $requestedItem) {
+                    $productKey = (string) $requestedItem['product_id'];
+                    $qty = (int) $requestedItem['quantity'];
+                    $demandProducts[$productKey] = ($demandProducts[$productKey] ?? 0) + $qty;
+                    if (!empty($requestedItem['size'])) {
+                        $sizeKey = $productKey . ':' . $requestedItem['size'];
+                        $demandSizes[$sizeKey] = ($demandSizes[$sizeKey] ?? 0) + $qty;
+                        if (!empty($requestedItem['color'])) {
+                            $variantKey = $sizeKey . ':' . $requestedItem['color'];
+                            $demandVariants[$variantKey] = ($demandVariants[$variantKey] ?? 0) + $qty;
+                        }
+                    }
+                }
+
                 foreach ($validated['items'] as $item) {
                     $product = Product::with('sizes')->find($item['product_id']);
                     if (!$product) {
@@ -91,8 +110,18 @@ class CheckoutController extends Controller
                     $quantity = (int) $item['quantity'];
                     $masterStock = (int) ($product->stock ?? 0);
 
-                    if ($quantity > $masterStock) {
+                    if (($demandProducts[(string) $product->id] ?? $quantity) > $masterStock) {
                         abort(422, "Stock insuficiente para '{$product->name}'. Disponible: {$masterStock}.");
+                    }
+
+                    if ($product->sizes->isNotEmpty() && empty($item['size'])) {
+                        abort(422, "Selecciona una talla para '{$product->name}'.");
+                    }
+
+                    if (Schema::hasTable('product_variant_stocks')
+                        && ProductVariantStock::where('product_id', $product->id)->exists()
+                        && (empty($item['color']) || empty($item['size']))) {
+                        abort(422, "Selecciona color y talla para '{$product->name}'.");
                     }
 
                     if (!empty($item['size'])) {
@@ -110,7 +139,7 @@ class CheckoutController extends Controller
                             abort(422, "El producto '{$product->name}' no tiene la talla '{$item['size']}'.");
                         }
 
-                        if ($quantity > (int) $sizeRow->stock) {
+                        if (($demandSizes[$product->id . ':' . $item['size']] ?? $quantity) > (int) $sizeRow->stock) {
                             abort(422, "Stock insuficiente para '{$product->name}' talla {$item['size']}. Disponible: {$sizeRow->stock}.");
                         }
 
@@ -124,7 +153,7 @@ class CheckoutController extends Controller
                                 abort(422, "La variante de color y talla seleccionada no está disponible.");
                             }
 
-                            if ($variantRow && $quantity > (int) $variantRow->stock) {
+                            if ($variantRow && ($demandVariants[$product->id . ':' . $item['size'] . ':' . $item['color']] ?? $quantity) > (int) $variantRow->stock) {
                                 abort(422, "Stock insuficiente para '{$product->name}', color {$item['color']}, talla {$item['size']}. Disponible: {$variantRow->stock}.");
                             }
                         }
@@ -775,6 +804,43 @@ class CheckoutController extends Controller
                 }
 
                 $reservations[] = [$product, $sizeRow, $variantRow, $quantity];
+            }
+
+            // Segunda validación bajo bloqueo y con la suma de todas las líneas.
+            // Evita stock negativo con pedidos creados antes del endurecimiento
+            // del endpoint o con pedidos que contengan variantes duplicadas.
+            $productDemands = [];
+            $sizeDemands = [];
+            $variantDemands = [];
+            foreach ($reservations as [$product, $sizeRow, $variantRow, $quantity]) {
+                $productDemands[$product->id]['row'] = $product;
+                $productDemands[$product->id]['quantity'] =
+                    ($productDemands[$product->id]['quantity'] ?? 0) + $quantity;
+                if ($sizeRow) {
+                    $sizeDemands[$sizeRow->id]['row'] = $sizeRow;
+                    $sizeDemands[$sizeRow->id]['quantity'] =
+                        ($sizeDemands[$sizeRow->id]['quantity'] ?? 0) + $quantity;
+                }
+                if ($variantRow) {
+                    $variantDemands[$variantRow->id]['row'] = $variantRow;
+                    $variantDemands[$variantRow->id]['quantity'] =
+                        ($variantDemands[$variantRow->id]['quantity'] ?? 0) + $quantity;
+                }
+            }
+            foreach ($productDemands as $itemDemand) {
+                if ($itemDemand['quantity'] > (int) $itemDemand['row']->stock) {
+                    return 'Stock total insuficiente para completar el pedido.';
+                }
+            }
+            foreach ($sizeDemands as $itemDemand) {
+                if ($itemDemand['quantity'] > (int) $itemDemand['row']->stock) {
+                    return 'Stock por talla insuficiente para completar el pedido.';
+                }
+            }
+            foreach ($variantDemands as $itemDemand) {
+                if ($itemDemand['quantity'] > (int) $itemDemand['row']->stock) {
+                    return 'Stock por color y talla insuficiente para completar el pedido.';
+                }
             }
 
             foreach ($reservations as [$product, $sizeRow, $variantRow, $quantity]) {
