@@ -26,9 +26,9 @@ class BrandController extends Controller
             'is_active' => 'nullable|boolean',
         ]);
 
-        $normalized = \\Illuminate\\Support\\Str::slug(trim($validated['name']));
+        $normalized = \Illuminate\Support\Str::slug(trim($validated['name']));
         if (Brand::query()->get(['name'])->contains(fn ($item) =>
-            \\Illuminate\\Support\\Str::slug($item->name) === $normalized
+            \Illuminate\Support\Str::slug($item->name) === $normalized
         )) {
             return response()->json(['message' => 'La marca ya existe. Selecciona la existente o actívala.'], 422);
         }
