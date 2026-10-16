@@ -14,6 +14,7 @@ use App\Http\Controllers\SettingController;
 use App\Http\Controllers\AdditionalServiceController;
 use App\Http\Controllers\StatsController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\BrandController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\SubcategoryController;
 use App\Http\Controllers\AddressController;
@@ -155,6 +156,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/my-bookings', [LeadController::class, 'clientLeads']);
 
+    // Consulta de marcas: accesible con sesión; escritura solo para administradores.
+    Route::get('/brands', [BrandController::class, 'index']);
+    Route::get('/brands/{brand}', [BrandController::class, 'show']);
+
     // Categorías y subcategorías
     Route::get('/categories', [CategoryController::class, 'index']);
     Route::get('/categories/{category}', [CategoryController::class, 'show']);
@@ -229,6 +234,11 @@ Route::middleware('auth:sanctum')->group(function () {
             AdditionalServiceController::class,
             'destroy',
         ]);
+
+        // Marcas: alta y aprobación explícita desde Paso 0.
+        Route::post('/brands', [BrandController::class, 'store']);
+        Route::put('/brands/{brand}', [BrandController::class, 'update']);
+        Route::delete('/brands/{brand}', [BrandController::class, 'destroy']);
 
         // Categorías
         Route::post('/categories', [CategoryController::class, 'store']);
