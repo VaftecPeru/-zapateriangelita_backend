@@ -64,9 +64,9 @@ class SubcategoryController extends Controller
             'is_active'   => 'nullable|boolean',
         ]);
 
-        $normalized = \\Illuminate\\Support\\Str::slug(trim($validated['name']));
+        $normalized = \Illuminate\Support\Str::slug(trim($validated['name']));
         if (Subcategory::query()->where('category_id', $validated['category_id'])
-            ->get(['name'])->contains(fn ($item) => \\Illuminate\\Support\\Str::slug($item->name) === $normalized)) {
+            ->get(['name'])->contains(fn ($item) => \Illuminate\Support\Str::slug($item->name) === $normalized)) {
             return response()->json(['message' => 'La subcategoría ya existe dentro de esta categoría.'], 422);
         }
         $validated['name'] = trim($validated['name']);
