@@ -55,7 +55,7 @@ class ProductImportController extends Controller
                 'message' => $e->getMessage(),
                 'preview' => $this->safePreview($file, $mappings),
             ], 422);
-        } catch (\\Throwable $e) {
+        } catch (\Throwable $e) {
             Log::error('Error inesperado al importar inventario', [
                 'user_id' => $request->user()?->id,
                 'file' => $file->getClientOriginalName(),
@@ -114,10 +114,10 @@ class ProductImportController extends Controller
         return $file;
     }
 
-    private function safePreview(\Illuminate\Http\UploadedFile $file): ?array
+    private function safePreview(\Illuminate\Http\UploadedFile $file, array $mappings = []): ?array
     {
         try {
-            return $this->importer->preview($file);
+            return $this->importer->preview($file, $mappings);
         } catch (\Throwable) {
             return null;
         }
