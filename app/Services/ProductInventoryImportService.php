@@ -573,13 +573,13 @@ class ProductInventoryImportService
 
     private function analyzeRows(array $rows, string $format, int $headerRow, array $mappings = []): array
     {
-        $categoryLookup = Category::query()->get(['id', 'name'])->keyBy(
+        $categoryLookup = Category::query()->where('is_active', true)->get(['id', 'name'])->keyBy(
             fn ($item) => $this->categoryAlias($item->name)
         );
-        $brandLookup = Brand::query()->get(['id', 'name'])->keyBy(
+        $brandLookup = Brand::query()->where('is_active', true)->get(['id', 'name'])->keyBy(
             fn ($item) => $this->normalizeText($item->name)
         );
-        $subcategories = Subcategory::query()->get(['id', 'category_id', 'name']);
+        $subcategories = Subcategory::query()->where('is_active', true)->get(['id', 'category_id', 'name']);
 
         $existingProducts = Product::query()
             ->whereNotNull('product_code')
@@ -1354,7 +1354,7 @@ class ProductInventoryImportService
         }
 
         $normalized = $this->categoryAlias($name);
-        $existing = Category::query()->get(['id', 'name'])->first(
+        $existing = Category::query()->where('is_active', true)->get(['id', 'name'])->first(
             fn ($item) => $this->categoryAlias($item->name) === $normalized
         );
         if (!$existing || ($knownId !== null && (int) $knownId !== (int) $existing->id)) {
@@ -1373,7 +1373,7 @@ class ProductInventoryImportService
         }
 
         $existing = Subcategory::query()->where('category_id', $categoryId)
-            ->get(['id', 'name'])->first(fn ($item) => $this->normalizeText($item->name) === $this->normalizeText($name));
+            ->where('is_active', true)->get(['id', 'name'])->first(fn ($item) => $this->normalizeText($item->name) === $this->normalizeText($name));
         if (!$existing || ($knownId !== null && (int) $knownId !== (int) $existing->id)) {
             throw new RuntimeException('Subcategoría no registrada o modificada durante la importación: ' . $name);
         }
