@@ -8,7 +8,8 @@ class ProductPublicationService
 {
     /**
      * El producto puede publicarse solo con datos comerciales verificables.
-     * Una referencia de imagen válida debe existir antes de marcarlo como visible.
+     * Las imágenes son opcionales: la publicación se decide por precio,
+     * stock, datos del modelo y catálogos activos.
      */
     public function isReady(Product $product): bool
     {
@@ -35,13 +36,6 @@ class ProductPublicationService
             && !$product->subcategory()->where('is_active', true)
                 ->where('category_id', $product->category_id)->exists()
         ) {
-            return false;
-        }
-
-        $images = is_array($product->images) ? $product->images : [];
-        $hasImage = trim((string) $product->img) !== ''
-            || collect($images)->contains(fn ($value) => is_string($value) && trim($value) !== '');
-        if (!$hasImage) {
             return false;
         }
 
