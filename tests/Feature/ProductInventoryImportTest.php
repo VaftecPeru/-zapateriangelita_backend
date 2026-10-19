@@ -12,6 +12,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 use ZipArchive;
@@ -849,6 +850,85 @@ class ProductInventoryImportTest extends TestCase
         $response->assertStatus(422);
         $this->assertDatabaseMissing('products', ['product_code' => 'ZA-0300']);
         $this->assertDatabaseMissing('products', ['product_code' => 'ZA-0301']);
+    }
+
+    public function test_three_pirma_codes_import_without_price_and_remain_drafts(): void
+    {
+        Brand::create(['name' => 'Pirma', 'slug' => 'pirma', 'is_active' => true]);
+        Category::create(['name' => 'Mujer', 'is_active' => true, 'order' => 3]);
+
+        // Mismos códigos y cantidades de la evidencia de producción:
+        // 3 productos, 12 variantes, 44 unidades, sin precio comercial.
+        $rows = [
+            array_merge($this->headers(), ['STOCK_POR_TALLA']),
+            ['CREAR', 'S0380', 'Calzado Pirma mujer modelo 0248', '0248', 'Pirma',
+                'Mujer', '', '', '', '', 'Negro/Blanco', '2,3,4,5,6', '15',
+                '', '', '', '', 'ACTIVO', '', 'OK', '2:2;3:2;4:4;5:3;6:4'],
+            ['CREAR', 'S0041', 'Calzado Pirma mujer modelo 0248', '0248', 'Pirma',
+                'Mujer', '', '0', '', '', 'Negro/Fucsia', '3,4,5', '11',
+                '', '', '', '', 'ACTIVO', '', 'OK', '3:4;4:3;5:4'],
+            ['CREAR', 'S0042', 'Calzado Pirma mujer modelo 0248', '0248', 'Pirma',
+                'Mujer', '', '', '', '', 'Negro/Negro', '3,4,5,6', '18',
+                '', '', '', '', 'ACTIVO', '', 'OK', '3:4;4:5;5:4;6:5'],
+        ];
+
+        $stream = fopen('php://temp', 'w+');
+        foreach ($rows as $row) {
+            fputcsv($stream, $row);
+        }
+        rewind($stream);
+        $csv = stream_get_contents($stream);
+        fclose($stream);
+        $file = UploadedFile::fake()->createWithContent('pirma-real-precio-pendiente.csv', $csv);
+
+        $this->post('/api/admin/products/import/preview', ['file' => $file], [
+            'Accept' => 'application/json',
+        ])->assertOk()->assertJsonPath('valid', true)
+            ->assertJsonPath('summary.products', 3)
+            ->assertJsonPath('summary.variants', 12)
+            ->assertJsonPath('summary.ready_products', 0)
+            ->assertJsonPath('summary.draft_products', 3);
+
+        $this->post('/api/admin/products/import/commit', ['file' => $file], [
+            'Accept' => 'application/json',
+        ])->assertOk()->assertJsonPath('summary.created', 3)
+            ->assertJsonPath('summary.variants', 12)
+            ->assertJsonPath('summary.units', 44)
+            ->assertJsonPath('summary.published', 0)
+            ->assertJsonPath('summary.drafts', 3);
+
+        foreach (['S0380' => 15, 'S0041' => 11, 'S0042' => 18] as $code => $stock) {
+            $this->assertDatabaseHas('products', [
+                'product_code' => $code, 'price' => 0, 'stock' => $stock,
+                'is_active' => false,
+            ]);
+        }
+        $this->assertDatabaseCount('product_variant_stocks', 12);
+        $this->getJson('/api/products')->assertOk()->assertJsonCount(0, 'data');
+    }
+
+    public function test_import_reports_pending_schema_migration_without_writing_products(): void
+    {
+        $this->assertTrue(Schema::hasColumn('products', 'auto_publish'));
+        Schema::table('products', function (\\Illuminate\\Database\\Schema\\Blueprint $table) {
+            $table->dropColumn('auto_publish');
+        });
+
+        $file = $this->xlsx([
+            $this->headers(),
+            ['CREAR', 'S-ESQUEMA-QA', 'Producto sin precio', 'MODELO-QA',
+                'Angelita', 'Hombre', 'Botines', '', '', '', 'Negro', '25', '2',
+                '', '', '', '', 'ACTIVO', '', 'OK'],
+        ]);
+
+        $this->post('/api/admin/products/import/commit', ['file' => $file], [
+            'Accept' => 'application/json',
+        ])->assertStatus(422)
+            ->assertJsonPath('preview.valid', true)
+            ->assertJsonPath('preview.summary.draft_products', 1)
+            ->assertJsonFragment(['message' => 'Esquema de producción pendiente de migración: products.auto_publish. Haz respaldo de la base de datos y ejecuta las migraciones Laravel (php artisan migrate --force) antes de importar. El inventario no se ha modificado.']);
+
+        $this->assertDatabaseMissing('products', ['product_code' => 'S-ESQUEMA-QA']);
     }
 
     private function headers(): array
