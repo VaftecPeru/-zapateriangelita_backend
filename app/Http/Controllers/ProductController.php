@@ -335,7 +335,6 @@ class ProductController extends Controller
             'variantStocks',
         )->where('is_active', true)
             ->where('price', '>', 0)
-            ->whereNotNull('img')->where('img', '!=', '')
             ->whereHas('brand', fn ($brand) => $brand->where('is_active', true))
             ->whereHas('category', fn ($category) => $category->where('is_active', true));
 
@@ -531,7 +530,6 @@ class ProductController extends Controller
     public function show(Product $product): JsonResponse
     {
         if (!$product->is_active || (float) $product->price <= 0
-            || trim((string) $product->img) === ''
             || !$product->brand()->where('is_active', true)->exists()
             || !$product->category()->where('is_active', true)->exists()) {
             abort(404);
