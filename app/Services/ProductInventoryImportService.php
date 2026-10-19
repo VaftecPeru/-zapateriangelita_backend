@@ -12,6 +12,7 @@ use App\Models\ProductVariantStock;
 use App\Models\Subcategory;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use RuntimeException;
 use SimpleXMLElement;
@@ -158,6 +159,8 @@ class ProductInventoryImportService
             array_filter($preview['groups'], fn ($group) => !$group['valid'])
         ));
 
+        $this->assertImportSchemaReady();
+
         $result = DB::transaction(function () use ($eligibleGroups, $skippedCodes, $userId) {
             $created = 0;
             $updated = 0;
@@ -195,6 +198,43 @@ class ProductInventoryImportService
             'message' => 'Inventario importado correctamente.',
             'summary' => $result,
         ];
+    }
+
+    /**
+     * Evita errores SQL opacos si se desplegó el código antes de ejecutar
+     * las migraciones en producción. No modifica el esquema ni inventarios.
+     */
+    private function assertImportSchemaReady(): void
+    {
+        $required = [
+            'products' => ['product_code', 'model', 'brand_id', 'category_id', 'is_active', 'auto_publish', 'color_sizes'],
+            'product_variant_stocks' => ['product_id', 'color', 'size', 'stock'],
+            'product_sizes' => ['product_id', 'size', 'stock'],
+            'product_colors' => ['product_id', 'color'],
+            'inventory_movements' => ['product_id', 'color', 'size', 'quantity_change', 'previous_stock', 'new_stock'],
+        ];
+        $missing = [];
+
+        foreach ($required as $table => $columns) {
+            if (!Schema::hasTable($table)) {
+                $missing[] = "tabla {$table}";
+                continue;
+            }
+            foreach ($columns as $column) {
+                if (!Schema::hasColumn($table, $column)) {
+                    $missing[] = "{$table}.{$column}";
+                }
+            }
+        }
+
+        if ($missing !== []) {
+            throw new RuntimeException(
+                'Esquema de producción desactualizado: faltan '
+                . implode(', ', $missing)
+                . '. Ejecuta las migraciones pendientes (php artisan migrate --force) '
+                . 'sobre la base configurada en .env, tras realizar respaldo.'
+            );
+        }
     }
 
     private function readFile(UploadedFile $file): array
@@ -828,7 +868,7 @@ class ProductInventoryImportService
             }
 
             if ($images === []) {
-                $warnings[] = 'Imagen comercial pendiente: el producto permanecerá en borrador';
+                $warnings[] = 'Imagen opcional pendiente: puedes añadirla después sin bloquear la publicación';
             }
 
             $normalizedRows[] = [
@@ -960,12 +1000,9 @@ class ProductInventoryImportService
                 }
             }
 
-            $hasImage = count($allImages) > 0
-                || ($existing && (trim((string) $existing->img) !== ''
-                    || count(is_array($existing->images) ? $existing->images : []) > 0));
             $willPublish = count($groupErrors) === 0
                 && $first['auto_publish'] && (float) $first['price'] > 0
-                && $totalStock > 0 && $hasImage
+                && $totalStock > 0
                 && $first['brand_id'] && $first['category_id']
                 && trim((string) $first['model']) !== '';
             foreach ($indexes as $index) {
