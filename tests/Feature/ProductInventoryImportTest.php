@@ -465,21 +465,21 @@ class ProductInventoryImportTest extends TestCase
             ->assertStatus(404);
 
         // Precio único del modelo: los colores con precio cero reciben el mismo
-        // importe, sin publicarse mientras sigan sin fotografía.
+        // importe; una vez completado el precio, se publican incluso sin fotografía.
         $this->putJson('/api/admin/products/model-price', [
             'brand_id' => Brand::where('name', 'Pirma')->firstOrFail()->id,
             'category_id' => $category->id,
             'model' => '0248',
             'price' => 799,
         ])->assertOk()->assertJsonPath('summary.updated', 2)
-            ->assertJsonPath('summary.drafts', 2);
+            ->assertJsonPath('summary.published', 2);
         foreach (['S0380', 'S0041'] as $code) {
             $this->assertDatabaseHas('products', [
-                'product_code' => $code, 'price' => 799, 'is_active' => false,
+                'product_code' => $code, 'price' => 799, 'is_active' => true,
             ]);
         }
 
-        // Completar la fotografía comercial de un SKU activa solo ese color.
+        // Añadir una imagen posteriormente no cambia la decisión de publicación.
         $first = Product::where('product_code', 'S0380')->firstOrFail();
         $first->images = ['/uploads/products/pirma-0248-negro-blanco.webp'];
         $first->img = '/uploads/products/pirma-0248-negro-blanco.webp';
@@ -488,14 +488,41 @@ class ProductInventoryImportTest extends TestCase
             'price' => 799,
         ])->assertOk();
         $this->assertTrue((bool) $first->fresh()->is_active);
-        $this->assertFalse((bool) Product::where('product_code', 'S0041')->firstOrFail()->is_active);
-        $this->getJson('/api/products')->assertOk()->assertJsonCount(1, 'data');
+        $this->assertTrue((bool) Product::where('product_code', 'S0041')->firstOrFail()->is_active);
+        $this->getJson('/api/products')->assertOk()->assertJsonCount(2, 'data');
 
         // Desactivar la marca evita exposición incluso cuando el producto
         // conservaba is_active=true tras la publicación inicial.
         Brand::where('name', 'Pirma')->firstOrFail()->update(['is_active' => false]);
         $this->getJson('/api/products')->assertOk()->assertJsonCount(0, 'data');
         $this->getJson('/api/products/' . $first->id)->assertStatus(404);
+    }
+
+    public function test_missing_schema_column_produces_actionable_error_before_writes(): void
+    {
+        Brand::create(['name' => 'Pirma', 'slug' => 'pirma', 'is_active' => true]);
+        Category::create(['name' => 'Mujer', 'is_active' => true, 'order' => 4]);
+
+        $file = $this->xlsx([
+            $this->headers(),
+            ['CREAR', 'S0999', 'Calzado Pirma Modelo 999', '999', 'Pirma', 'Mujer', '', '0', '', '', 'Negro', '3', '1', '', '', '', '', 'ACTIVO', '', 'OK'],
+        ]);
+
+        \Illuminate\Support\Facades\Schema::table('products', function (\Illuminate\Database\Schema\Blueprint $table) {
+            $table->dropColumn('auto_publish');
+        });
+
+        $this->post('/api/admin/products/import/preview', ['file' => $file], [
+            'Accept' => 'application/json',
+        ])->assertOk()->assertJsonPath('valid', true);
+
+        $response = $this->post('/api/admin/products/import/commit', ['file' => $file], [
+            'Accept' => 'application/json',
+        ]);
+        $response->assertStatus(422)
+            ->assertJsonPath('preview.valid', true);
+        $this->assertStringContainsString('products.auto_publish', $response->json('message'));
+        $this->assertDatabaseMissing('products', ['product_code' => 'S0999']);
     }
 
     public function test_price_is_inherited_from_model_only_when_unambiguous(): void
@@ -511,12 +538,12 @@ class ProductInventoryImportTest extends TestCase
         $this->post('/api/admin/products/import/preview', ['file' => $file], [
             'Accept' => 'application/json',
         ])->assertOk()->assertJsonPath('valid', true)
-            ->assertJsonPath('summary.ready_products', 1)
-            ->assertJsonPath('summary.draft_products', 2);
+            ->assertJsonPath('summary.ready_products', 3)
+            ->assertJsonPath('summary.draft_products', 0);
         $this->post('/api/admin/products/import/commit', ['file' => $file], [
             'Accept' => 'application/json',
-        ])->assertOk()->assertJsonPath('summary.published', 1)
-            ->assertJsonPath('summary.drafts', 2);
+        ])->assertOk()->assertJsonPath('summary.published', 3)
+            ->assertJsonPath('summary.drafts', 0);
         foreach (['S0380', 'S0041', 'S0042'] as $code) {
             $this->assertDatabaseHas('products', ['product_code' => $code, 'price' => 799]);
         }
@@ -600,7 +627,7 @@ class ProductInventoryImportTest extends TestCase
         $this->assertSame(10, (int) $product->stock);
         $this->assertSame('1200.00', (string) $product->discounted_price);
         $this->assertSame('oferta', $product->status);
-        $this->assertFalse((bool) $product->is_active); // Sin fotografía comercial: borrador seguro.
+        $this->assertTrue((bool) $product->is_active); // Precio/stock completos: imagen opcional.
         $this->assertDatabaseCount('product_variant_stocks', 3);
         $this->assertDatabaseHas('product_sizes', [
             'product_id' => $product->id,
