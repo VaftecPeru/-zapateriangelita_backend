@@ -78,11 +78,11 @@ class ProductInventoryImportService
 
             $rows = [
                 ['ZAPATERÍA ANGELITA — PLANTILLA DE IMPORTACIÓN DE PRODUCTOS E INVENTARIO'],
-                ['Plantilla V2 · Una fila por color; múltiples tallas requieren STOCK_POR_TALLA (ejemplo 5:2;6:1;7:3). Registra antes marcas y categorías en el Paso 0.'],
+                ['Plantilla V2 · PRECIO es opcional (vacío o 0 MXN = borrador). STOCK_POR_TALLA requiere desglose para varias tallas. Registra marcas y categorías en Paso 0.'],
                 [],
                 [
                     'ACCIÓN*', 'CÓDIGO_PRODUCTO*', 'NOMBRE*', 'MODELO', 'MARCA*',
-                    'CATEGORÍA', 'SUBCATEGORÍA', 'PRECIO*', 'PRECIO_OFERTA', 'MATERIAL',
+                    'CATEGORÍA', 'SUBCATEGORÍA', 'PRECIO', 'PRECIO_OFERTA', 'MATERIAL',
                     'COLOR*', 'TALLA*', 'STOCK*', 'STOCK_POR_TALLA', 'DESCRIPCIÓN', 'IMAGEN_PRINCIPAL',
                     'IMAGEN_2', 'IMAGEN_3', 'ESTADO*', 'OBSERVACIONES', 'VALIDACIÓN',
                 ],
@@ -207,32 +207,40 @@ class ProductInventoryImportService
     private function assertImportSchemaReady(): void
     {
         $required = [
-            'products' => ['product_code', 'model', 'brand_id', 'category_id', 'is_active', 'auto_publish', 'color_sizes'],
+            'products' => [
+                'product_code', 'name', 'model', 'brand_id', 'category_id',
+                'subcategory_id', 'price', 'stock', 'size', 'color',
+                'status', 'is_active', 'auto_publish', 'img', 'images',
+                'color_images', 'color_sizes',
+            ],
             'product_variant_stocks' => ['product_id', 'color', 'size', 'stock'],
             'product_sizes' => ['product_id', 'size', 'stock'],
-            'product_colors' => ['product_id', 'color'],
-            'inventory_movements' => ['product_id', 'color', 'size', 'quantity_change', 'previous_stock', 'new_stock'],
+            'product_colors' => ['product_id', 'color', 'hex'],
+            'inventory_movements' => [
+                'product_id', 'user_id', 'color', 'size', 'type',
+                'quantity_change', 'previous_stock', 'new_stock', 'reason',
+            ],
         ];
-        $missing = [];
 
+        $missing = [];
         foreach ($required as $table => $columns) {
             if (!Schema::hasTable($table)) {
-                $missing[] = "tabla {$table}";
+                $missing[] = $table . ' (tabla ausente)';
                 continue;
             }
+
             foreach ($columns as $column) {
                 if (!Schema::hasColumn($table, $column)) {
-                    $missing[] = "{$table}.{$column}";
+                    $missing[] = $table . '.' . $column;
                 }
             }
         }
 
         if ($missing !== []) {
             throw new RuntimeException(
-                'Esquema de producción desactualizado: faltan '
-                . implode(', ', $missing)
-                . '. Ejecuta las migraciones pendientes (php artisan migrate --force) '
-                . 'sobre la base configurada en .env, tras realizar respaldo.'
+                'Esquema de producción pendiente de migración: ' . implode(', ', $missing)
+                . '. Haz respaldo de la base de datos y ejecuta las migraciones Laravel '
+                . '(php artisan migrate --force) antes de importar. El inventario no se ha modificado.'
             );
         }
     }
