@@ -910,7 +910,7 @@ class ProductInventoryImportTest extends TestCase
     public function test_import_reports_pending_schema_migration_without_writing_products(): void
     {
         $this->assertTrue(Schema::hasColumn('products', 'auto_publish'));
-        Schema::table('products', function (\\Illuminate\\Database\\Schema\\Blueprint $table) {
+        Schema::table('products', function (\Illuminate\Database\Schema\Blueprint $table) {
             $table->dropColumn('auto_publish');
         });
 
