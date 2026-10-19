@@ -12,6 +12,7 @@ use App\Models\ProductVariantStock;
 use App\Models\Subcategory;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use RuntimeException;
 use SimpleXMLElement;
@@ -77,11 +78,11 @@ class ProductInventoryImportService
 
             $rows = [
                 ['ZAPATERÍA ANGELITA — PLANTILLA DE IMPORTACIÓN DE PRODUCTOS E INVENTARIO'],
-                ['Plantilla V2 · Una fila por color; múltiples tallas requieren STOCK_POR_TALLA (ejemplo 5:2;6:1;7:3). Registra antes marcas y categorías en el Paso 0.'],
+                ['Plantilla V2 · PRECIO es opcional (vacío o 0 MXN = borrador). STOCK_POR_TALLA requiere desglose para varias tallas. Registra marcas y categorías en Paso 0.'],
                 [],
                 [
                     'ACCIÓN*', 'CÓDIGO_PRODUCTO*', 'NOMBRE*', 'MODELO', 'MARCA*',
-                    'CATEGORÍA', 'SUBCATEGORÍA', 'PRECIO*', 'PRECIO_OFERTA', 'MATERIAL',
+                    'CATEGORÍA', 'SUBCATEGORÍA', 'PRECIO', 'PRECIO_OFERTA', 'MATERIAL',
                     'COLOR*', 'TALLA*', 'STOCK*', 'STOCK_POR_TALLA', 'DESCRIPCIÓN', 'IMAGEN_PRINCIPAL',
                     'IMAGEN_2', 'IMAGEN_3', 'ESTADO*', 'OBSERVACIONES', 'VALIDACIÓN',
                 ],
@@ -158,6 +159,8 @@ class ProductInventoryImportService
             array_filter($preview['groups'], fn ($group) => !$group['valid'])
         ));
 
+        $this->assertImportSchemaReady();
+
         $result = DB::transaction(function () use ($eligibleGroups, $skippedCodes, $userId) {
             $created = 0;
             $updated = 0;
@@ -195,6 +198,51 @@ class ProductInventoryImportService
             'message' => 'Inventario importado correctamente.',
             'summary' => $result,
         ];
+    }
+
+    /**
+     * Evita errores SQL opacos si se desplegó el código antes de ejecutar
+     * las migraciones en producción. No modifica el esquema ni inventarios.
+     */
+    private function assertImportSchemaReady(): void
+    {
+        $required = [
+            'products' => [
+                'product_code', 'name', 'model', 'brand_id', 'category_id',
+                'subcategory_id', 'price', 'stock', 'size', 'color',
+                'status', 'is_active', 'auto_publish', 'img', 'images',
+                'color_images', 'color_sizes',
+            ],
+            'product_variant_stocks' => ['product_id', 'color', 'size', 'stock'],
+            'product_sizes' => ['product_id', 'size', 'stock'],
+            'product_colors' => ['product_id', 'color', 'hex'],
+            'inventory_movements' => [
+                'product_id', 'user_id', 'color', 'size', 'type',
+                'quantity_change', 'previous_stock', 'new_stock', 'reason',
+            ],
+        ];
+
+        $missing = [];
+        foreach ($required as $table => $columns) {
+            if (!Schema::hasTable($table)) {
+                $missing[] = $table . ' (tabla ausente)';
+                continue;
+            }
+
+            foreach ($columns as $column) {
+                if (!Schema::hasColumn($table, $column)) {
+                    $missing[] = $table . '.' . $column;
+                }
+            }
+        }
+
+        if ($missing !== []) {
+            throw new RuntimeException(
+                'Esquema de producción pendiente de migración: ' . implode(', ', $missing)
+                . '. Haz respaldo de la base de datos y ejecuta las migraciones Laravel '
+                . '(php artisan migrate --force) antes de importar. El inventario no se ha modificado.'
+            );
+        }
     }
 
     private function readFile(UploadedFile $file): array
@@ -828,7 +876,7 @@ class ProductInventoryImportService
             }
 
             if ($images === []) {
-                $warnings[] = 'Imagen comercial pendiente: el producto permanecerá en borrador';
+                $warnings[] = 'Imagen opcional pendiente: puedes añadirla después sin bloquear la publicación';
             }
 
             $normalizedRows[] = [
@@ -960,12 +1008,9 @@ class ProductInventoryImportService
                 }
             }
 
-            $hasImage = count($allImages) > 0
-                || ($existing && (trim((string) $existing->img) !== ''
-                    || count(is_array($existing->images) ? $existing->images : []) > 0));
             $willPublish = count($groupErrors) === 0
                 && $first['auto_publish'] && (float) $first['price'] > 0
-                && $totalStock > 0 && $hasImage
+                && $totalStock > 0
                 && $first['brand_id'] && $first['category_id']
                 && trim((string) $first['model']) !== '';
             foreach ($indexes as $index) {

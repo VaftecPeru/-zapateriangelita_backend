@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Services\ProductInventoryImportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
@@ -51,6 +52,21 @@ class ProductImportController extends Controller
 
         try {
             return response()->json($this->importer->commit($file, $request->user()?->id, $mappings, $request->boolean('import_valid_only')));
+        } catch (QueryException $e) {
+            // PDOException/QueryException hereda de RuntimeException.
+            // Debe capturarse primero para no filtrar SQL, rutas ni credenciales.
+            Log::error('Error SQL al importar inventario', [
+                'user_id' => $request->user()?->id,
+                'file' => $file->getClientOriginalName(),
+                'exception' => $e,
+            ]);
+
+            return response()->json([
+                'message' => 'El servidor no pudo guardar el inventario en la base de datos. '
+                    . 'Verifica las migraciones pendientes y revisa storage/logs/laravel.log. '
+                    . 'No se aplicaron cambios parciales.',
+                'preview' => $this->safePreview($file, $mappings),
+            ], 500);
         } catch (RuntimeException $e) {
             return response()->json([
                 'message' => $e->getMessage(),
