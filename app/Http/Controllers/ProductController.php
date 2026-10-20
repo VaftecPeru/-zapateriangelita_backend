@@ -71,21 +71,21 @@ class ProductController extends Controller
             ->filter(fn ($size) => $size !== '' && strlen($size) <= 10)
             ->unique();
 
-        $sizeCount = max(1, $sizes->count());
         $masterStock = max(0, (int) $product->stock);
-        $baseStock = intdiv($masterStock, $sizeCount);
-        $remainder = $masterStock % $sizeCount;
+        // No repartir inventario entre varias tallas sin conteo real.
+        // Una talla única puede usar el total; varias tallas requieren
+        // cantidades explícitas por talla o variante.
+        $singleSizeStock = $sizes->count() === 1 ? $masterStock : 0;
 
-        foreach ($sizes->values() as $index => $size) {
+        foreach ($sizes->values() as $size) {
             ProductSize::create([
                 'product_id' => $product->id,
                 'size' => $size,
-                // Si ya existe inventario por talla, se conserva. Para productos
-                // nuevos/importados sin desglose distribuimos el stock maestro
-                // sin duplicar unidades entre todas las tallas.
+                // Reutilizar conteos existentes; nunca inventar unidades para
+                // nuevas tallas que aún no tienen desglose declarado.
                 'stock' => array_key_exists($size, $existingSizeStock)
                     ? max(0, (int) $existingSizeStock[$size])
-                    : $baseStock + ($index < $remainder ? 1 : 0),
+                    : $singleSizeStock,
             ]);
         }
 
@@ -456,6 +456,20 @@ class ProductController extends Controller
 
         $variantStocks = $this->normalizeVariantStocks($request->input('variant_stocks'));
         $sizeStocks = $this->normalizeSizeStocks($request->input('size_stocks'));
+
+        // Alta manual: conservar el total informado, pero sin adjudicarlo a
+        // tallas específicas hasta recibir un desglose verificable.
+        $declaredSizes = array_values(array_filter(array_map(
+            'trim', preg_split('/[,|]+/', (string) ($validated['size'] ?? '')) ?: []
+        )));
+        if (count($declaredSizes) > 1 && !$variantStocks && !$sizeStocks
+            && (int) $validated['stock'] > 0
+        ) {
+            $validated['import_pending_data'] = [
+                'source' => 'manual',
+                'unallocated_stock' => (int) $validated['stock'],
+            ];
+        }
 
         if ($variantStocks) {
             $validated['stock'] = array_sum(array_column($variantStocks, 'stock'));
