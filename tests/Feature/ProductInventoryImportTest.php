@@ -611,7 +611,7 @@ class ProductInventoryImportTest extends TestCase
         $header = implode(',', array_merge($this->headers(), ['STOCK_POR_TALLA']));
         $csv = $header . "\n"
             . 'CREAR,S0250,Calzado para inventario,MODEL-1,Angelita,Hombre,Botines,0,,,Negro,4,3,,,,,ACTIVO,,OK,' . "\n"
-            . 'CREAR,S0251,Calzado defectuoso,MODEL-2,Angelita,Hombre,Botines,0,,,Negro,"4,5",3,,,,,ACTIVO,,OK,' . "\n";
+            . 'CREAR,S0251,Calzado defectuoso,MODEL-2,Angelita,Hombre,Botines,0,,,Negro,4,-3,,,,,ACTIVO,,OK,' . "\n";
         $file = UploadedFile::fake()->createWithContent('parcial.csv', $csv);
         $this->post('/api/admin/products/import/preview', ['file' => $file], [
             'Accept' => 'application/json',
@@ -716,19 +716,25 @@ class ProductInventoryImportTest extends TestCase
         ]);
     }
 
-    public function test_grouped_sizes_require_explicit_quantities_and_do_not_write(): void
+    public function test_grouped_sizes_without_breakdown_are_saved_as_non_sellable_draft(): void
     {
         $headers = implode(',', array_merge($this->headers(), ['STOCK_POR_TALLA']));
         $csv = $headers . "\n"
-            . 'CREAR,ZA-GROUPED-01,Botin agrupado,MODELO,Angelita,Hombre,Botines,1500,,Piel,Negro,"18,19,20,21",4,,,,,ACTIVO,,OK,' . "\n";
+            . 'CREAR,ZA-GROUPED-01,Botín agrupado,MODELO,Angelita,Hombre,Botines,1500,,Piel,Negro,"18,19,20,21",4,,,,,ACTIVO,,OK,' . "\n";
         $file = UploadedFile::fake()->createWithContent('sin-desglose.csv', $csv);
 
         $this->post('/api/admin/products/import/preview', ['file' => $file], ['Accept' => 'application/json'])
-            ->assertOk()->assertJsonPath('valid', false);
+            ->assertOk()->assertJsonPath('valid', true)
+            ->assertJsonPath('groups.0.unallocated_stock', 4)
+            ->assertJsonPath('summary.draft_products', 1);
 
         $this->post('/api/admin/products/import/commit', ['file' => $file], ['Accept' => 'application/json'])
-            ->assertStatus(422);
-        $this->assertDatabaseMissing('products', ['product_code' => 'ZA-GROUPED-01']);
+            ->assertOk()->assertJsonPath('summary.created', 1)
+            ->assertJsonPath('summary.drafts', 1);
+        $product = Product::where('product_code', 'ZA-GROUPED-01')->firstOrFail();
+        $this->assertFalse((bool) $product->is_active);
+        $this->assertSame(4, (int) $product->stock);
+        $this->assertSame(0, $product->variantStocks()->count());
     }
 
     public function test_preview_rejects_atomic_size_exceeding_historical_mariadb_limit(): void
