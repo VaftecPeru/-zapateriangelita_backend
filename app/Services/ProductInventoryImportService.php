@@ -1271,6 +1271,29 @@ class ProductInventoryImportService
                 'reason' => $reason,
             ]);
         }
+        // Registrar por separado el stock total que todavía no tiene
+        // talla/color asignados. No se mezcla con existencias vendibles.
+        $oldVariantStock = array_sum(array_map(
+            static fn ($v) => (int) $v['stock'], $previousVariants
+        ));
+        $newVariantStock = array_sum(array_map(
+            static fn ($v) => (int) $v['stock'], $newVariantMap
+        ));
+        $oldUnallocated = max(0, $previousTotalStock - $oldVariantStock);
+        $newUnallocated = max(0, (int) $product->stock - $newVariantStock);
+        if ($oldUnallocated !== $newUnallocated) {
+            InventoryMovement::create([
+                'product_id' => $product->id,
+                'user_id' => $userId,
+                'color' => null,
+                'size' => null,
+                'type' => 'ajuste',
+                'quantity_change' => $newUnallocated - $oldUnallocated,
+                'previous_stock' => $oldUnallocated,
+                'new_stock' => $newUnallocated,
+                'reason' => $reason . ' (sin talla/color asignados)',
+            ]);
+        }
     }
 
     private function variantKey(string $color, string $size): string
