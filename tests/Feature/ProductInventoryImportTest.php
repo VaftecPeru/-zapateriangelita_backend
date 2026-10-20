@@ -407,6 +407,41 @@ class ProductInventoryImportTest extends TestCase
             'color' => null, 'size' => null, 'new_stock' => 11,
         ]);
         $this->getJson('/api/products')->assertOk()->assertJsonCount(0, 'data');
+
+        // Aunque posteriormente se completen los datos comerciales, el stock
+        // sin tallas asignadas debe permanecer fuera del catálogo.
+        $product->forceFill([
+            'name' => 'Producto identificado QA',
+            'model' => 'MODELO-QA',
+            'brand_id' => Brand::where('name', 'Angelita')->firstOrFail()->id,
+            'category_id' => Category::where('name', 'Hombre')->firstOrFail()->id,
+            'price' => 1250,
+            'size' => '3',
+            'color' => 'Negro',
+            'auto_publish' => true,
+        ])->save();
+        app(\\App\\Services\\ProductPublicationService::class)->synchronize($product->fresh());
+        $this->assertFalse((bool) $product->fresh()->is_active);
+    }
+
+    public function test_v3_rejects_missing_pending_data_migration_before_writing_products(): void
+    {
+        \\Illuminate\\Support\\Facades\\Schema::table('products', function (\\Illuminate\\Database\\Schema\\Blueprint $table): void {
+            $table->dropColumn('import_pending_data');
+        });
+
+        $file = $this->xlsx([
+            $this->headers(),
+            ['CREAR', 'QA-SCHEMA-V3', 'Producto QA esquema', 'MOD-QA', 'Angelita',
+                'Hombre', 'Botines', '1200', '', '', 'Negro', '25', '3',
+                '', '', '', '', 'ACTIVO', '', 'OK'],
+        ]);
+
+        $this->post('/api/admin/products/import/commit', ['file' => $file], [
+            'Accept' => 'application/json',
+        ])->assertStatus(422)
+            ->assertSeeText('products.import_pending_data');
+        $this->assertDatabaseMissing('products', ['product_code' => 'QA-SCHEMA-V3']);
     }
 
     public function test_import_allows_missing_code_and_name_as_internal_draft(): void
