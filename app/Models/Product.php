@@ -32,6 +32,7 @@ class Product extends Model
         'status',
         'is_active',
         'auto_publish',
+        'import_pending_data',
         'category_id',
         'subcategory_id',
     ];
@@ -45,6 +46,7 @@ class Product extends Model
         'color_sizes' => 'array',
         'is_active' => 'boolean',
         'auto_publish' => 'boolean',
+        'import_pending_data' => 'array',
     ];
 
     protected static function booted(): void

@@ -157,32 +157,32 @@ class ProductInventoryImportTest extends TestCase
         $this->assertStringContainsString('Marca normalizada', implode(' | ', $response->json('rows.0.warnings')));
     }
 
-    public function test_unknown_catalog_is_blocked_until_explicit_registration_and_approval(): void
+    public function test_unknown_catalog_is_saved_as_draft_without_creating_catalogs(): void
     {
         $file = $this->xlsx([
             $this->headers(),
-            ['CREAR', 'ZA-FLEXI-02', 'Huarache Flexi Dama', 'HF-02', 'FLEXI DAMA', 'huarrache', '', '1499', '', 'Piel', 'Negro', '24', '4', '', '', '', '', 'ACTIVO', '', 'OK'],
+            ['CREAR', 'QA-FLEXI-PENDING-01', 'Huarache Flexi Dama', 'HF-02', 'MARCA NUEVA QA', 'CATEGORIA NUEVA QA', 'SUBCATEGORIA QA', '', '', '', 'Negro', '24', '4', '', '', '', '', 'ACTIVO', '', 'OK'],
         ]);
 
-        $this->post('/api/admin/products/import/preview', ['file' => $file], ['Accept' => 'application/json'])
-            ->assertOk()->assertJsonPath('valid', false);
-        $this->post('/api/admin/products/import/commit', ['file' => $file], ['Accept' => 'application/json'])
-            ->assertStatus(422);
-        $this->assertDatabaseMissing('products', ['product_code' => 'ZA-FLEXI-02']);
-        $this->assertDatabaseMissing('categories', ['slug' => 'huarache']);
+        $response = $this->post('/api/admin/products/import/preview', ['file' => $file], ['Accept' => 'application/json']);
+        $response->assertOk()->assertJsonPath('valid', true)
+            ->assertJsonPath('summary.ready_products', 0)
+            ->assertJsonPath('summary.draft_products', 1);
 
-        // El asistente crea el catálogo inactivo y solo después un administrador lo aprueba.
-        $response = $this->postJson('/api/categories', [
-            'name' => 'Huarache', 'is_active' => false,
-        ])->assertCreated();
-        $id = $response->json('id');
-        $this->post('/api/admin/products/import/preview', ['file' => $file], ['Accept' => 'application/json'])
-            ->assertOk()->assertJsonPath('valid', false);
-        $this->putJson('/api/categories/' . $id, ['is_active' => true])->assertOk();
         $this->post('/api/admin/products/import/commit', ['file' => $file], ['Accept' => 'application/json'])
-            ->assertOk()->assertJsonPath('summary.created', 1)
-            ->assertJsonPath('summary.units', 4);
-        $this->assertDatabaseHas('products', ['product_code' => 'ZA-FLEXI-02']);
+            ->assertOk()->assertJsonPath('summary.created', 1)->assertJsonPath('summary.drafts', 1);
+
+        $this->assertDatabaseHas('products', [
+            'product_code' => 'QA-FLEXI-PENDING-01',
+            'is_active' => false,
+            'price' => 0,
+        ]);
+        $product = Product::where('product_code', 'QA-FLEXI-PENDING-01')->firstOrFail();
+        $this->assertNull($product->brand_id);
+        $this->assertNull($product->category_id);
+        $this->assertSame('MARCA NUEVA QA', $product->import_pending_data['source_rows'][0]['brand']);
+        $this->assertDatabaseMissing('brands', ['name' => 'MARCA NUEVA QA']);
+        $this->assertDatabaseMissing('categories', ['name' => 'CATEGORIA NUEVA QA']);
     }
 
     public function test_existing_category_mapping_never_creates_a_new_category(): void
@@ -256,7 +256,9 @@ class ProductInventoryImportTest extends TestCase
 
         $this->post('/api/admin/products/import/preview', ['file' => $file], [
             'Accept' => 'application/json',
-        ])->assertOk()->assertJsonPath('valid', false);
+        ])->assertOk()->assertJsonPath('valid', true)
+            ->assertJsonPath('summary.draft_products', 1)
+            ->assertJsonPath('summary.ready_products', 0);
         $this->assertDatabaseMissing('products', ['product_code' => 'ZA-QA-V2-001']);
 
         $this->putJson('/api/brands/' . $brand->json('id'), [
@@ -369,6 +371,61 @@ class ProductInventoryImportTest extends TestCase
         Http::assertSentCount(1);
     }
 
+
+    public function test_import_with_missing_fields_preserves_unallocated_stock_without_selling_it(): void
+    {
+        $headers = array_merge($this->headers(), ['STOCK_POR_TALLA']);
+        $values = [
+            '', 'S-CONTROL-SIN-DESGLOSE', '', '', '', 'Mujer', '', '', '',
+            '', 'Negro', '3,4,5', '11', '', '', '', '', 'BORRADOR', '', '', '',
+        ];
+        $stream = fopen('php://temp', 'w+');
+        fputcsv($stream, $headers);
+        fputcsv($stream, $values);
+        rewind($stream);
+        $file = UploadedFile::fake()->createWithContent('flexible.csv', stream_get_contents($stream));
+        fclose($stream);
+
+        $this->post('/api/admin/products/import/preview', ['file' => $file], ['Accept' => 'application/json'])
+            ->assertOk()->assertJsonPath('valid', true)
+            ->assertJsonPath('summary.draft_products', 1)
+            ->assertJsonPath('groups.0.total_stock', 11)
+            ->assertJsonPath('groups.0.unallocated_stock', 11);
+
+        $this->post('/api/admin/products/import/commit', ['file' => $file], ['Accept' => 'application/json'])
+            ->assertOk()->assertJsonPath('summary.created', 1)
+            ->assertJsonPath('summary.units', 11)
+            ->assertJsonPath('summary.drafts', 1);
+
+        $product = Product::where('product_code', 'S-CONTROL-SIN-DESGLOSE')->firstOrFail();
+        $this->assertSame(11, (int) $product->stock);
+        $this->assertSame(0, $product->variantStocks()->count());
+        $this->assertFalse((bool) $product->is_active);
+        $this->assertSame(11, $product->import_pending_data['source_rows'][0]['unallocated_stock']);
+        $this->assertDatabaseHas('inventory_movements', [
+            'product_id' => $product->id,
+            'color' => null, 'size' => null, 'new_stock' => 11,
+        ]);
+        $this->getJson('/api/products')->assertOk()->assertJsonCount(0, 'data');
+    }
+
+    public function test_import_allows_missing_code_and_name_as_internal_draft(): void
+    {
+        $file = $this->xlsx([
+            $this->headers(),
+            ['', '', '', '', '', '', '', '', '', '', '', '', '5', '', '', '', '', '', '', ''],
+        ]);
+        $this->post('/api/admin/products/import/preview', ['file' => $file], ['Accept' => 'application/json'])
+            ->assertOk()->assertJsonPath('valid', true)
+            ->assertJsonPath('summary.draft_products', 1);
+        $this->post('/api/admin/products/import/commit', ['file' => $file], ['Accept' => 'application/json'])
+            ->assertOk()->assertJsonPath('summary.created', 1);
+        $product = Product::query()->firstOrFail();
+        $this->assertNull($product->product_code);
+        $this->assertFalse((bool) $product->is_active);
+        $this->assertSame(5, (int) $product->stock);
+        $this->assertSame(0, $product->variantStocks()->count());
+    }
 
     public function test_legacy_pirma_inventory_codes_are_persisted_exactly_without_generated_prefixes(): void
     {
@@ -554,7 +611,7 @@ class ProductInventoryImportTest extends TestCase
         $header = implode(',', array_merge($this->headers(), ['STOCK_POR_TALLA']));
         $csv = $header . "\n"
             . 'CREAR,S0250,Calzado para inventario,MODEL-1,Angelita,Hombre,Botines,0,,,Negro,4,3,,,,,ACTIVO,,OK,' . "\n"
-            . 'CREAR,S0251,Calzado defectuoso,MODEL-2,Angelita,Hombre,Botines,0,,,Negro,"4,5",3,,,,,ACTIVO,,OK,' . "\n";
+            . 'CREAR,S0251,Calzado defectuoso,MODEL-2,Angelita,Hombre,Botines,0,,,Negro,4,-3,,,,,ACTIVO,,OK,' . "\n";
         $file = UploadedFile::fake()->createWithContent('parcial.csv', $csv);
         $this->post('/api/admin/products/import/preview', ['file' => $file], [
             'Accept' => 'application/json',
@@ -659,19 +716,25 @@ class ProductInventoryImportTest extends TestCase
         ]);
     }
 
-    public function test_grouped_sizes_require_explicit_quantities_and_do_not_write(): void
+    public function test_grouped_sizes_without_breakdown_are_saved_as_non_sellable_draft(): void
     {
         $headers = implode(',', array_merge($this->headers(), ['STOCK_POR_TALLA']));
         $csv = $headers . "\n"
-            . 'CREAR,ZA-GROUPED-01,Botin agrupado,MODELO,Angelita,Hombre,Botines,1500,,Piel,Negro,"18,19,20,21",4,,,,,ACTIVO,,OK,' . "\n";
+            . 'CREAR,ZA-GROUPED-01,Botín agrupado,MODELO,Angelita,Hombre,Botines,1500,,Piel,Negro,"18,19,20,21",4,,,,,ACTIVO,,OK,' . "\n";
         $file = UploadedFile::fake()->createWithContent('sin-desglose.csv', $csv);
 
         $this->post('/api/admin/products/import/preview', ['file' => $file], ['Accept' => 'application/json'])
-            ->assertOk()->assertJsonPath('valid', false);
+            ->assertOk()->assertJsonPath('valid', true)
+            ->assertJsonPath('groups.0.unallocated_stock', 4)
+            ->assertJsonPath('summary.draft_products', 1);
 
         $this->post('/api/admin/products/import/commit', ['file' => $file], ['Accept' => 'application/json'])
-            ->assertStatus(422);
-        $this->assertDatabaseMissing('products', ['product_code' => 'ZA-GROUPED-01']);
+            ->assertOk()->assertJsonPath('summary.created', 1)
+            ->assertJsonPath('summary.drafts', 1);
+        $product = Product::where('product_code', 'ZA-GROUPED-01')->firstOrFail();
+        $this->assertFalse((bool) $product->is_active);
+        $this->assertSame(4, (int) $product->stock);
+        $this->assertSame(0, $product->variantStocks()->count());
     }
 
     public function test_preview_rejects_atomic_size_exceeding_historical_mariadb_limit(): void
@@ -866,7 +929,7 @@ class ProductInventoryImportTest extends TestCase
         $file = $this->xlsx([
             $this->headers(),
             ['CREAR', 'ZA-0300', 'Producto válido', '', 'Angelita', 'Hombre', 'Botines', '1000', '', 'Piel', 'Negro', '25', '2', '', '', '', '', 'ACTIVO', '', 'OK'],
-            ['CREAR', 'ZA-0301', 'Producto inválido', '', 'Marca inexistente', 'Hombre', 'Botines', '1000', '', 'Piel', 'Negro', '26', '2', '', '', '', '', 'ACTIVO', '', 'OK'],
+            ['CREAR', 'ZA-0301', 'Producto inválido', '', 'Marca inexistente', 'Hombre', 'Botines', '1000', '', 'Piel', 'Negro', '26', '-2', '', '', '', '', 'ACTIVO', '', 'OK'],
         ]);
 
         $response = $this->post('/api/admin/products/import/commit', ['file' => $file], [
