@@ -9,7 +9,7 @@ class ProductVariantStock extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['product_id', 'color', 'size', 'stock'];
+    protected $fillable = ['product_id', 'color', 'size', 'stock', 'article_model', 'sku'];
 
     protected $casts = ['stock' => 'integer'];
 
