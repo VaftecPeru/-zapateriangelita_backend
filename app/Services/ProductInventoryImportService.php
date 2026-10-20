@@ -1574,8 +1574,11 @@ class ProductInventoryImportService
         $existing = Category::query()->where('is_active', true)->get(['id', 'name'])->first(
             fn ($item) => $this->categoryAlias($item->name) === $normalized
         );
+        if (!$existing && $knownId === null) {
+            return null; // Categoría original pendiente: guardar el borrador.
+        }
         if (!$existing || ($knownId !== null && (int) $knownId !== (int) $existing->id)) {
-            throw new RuntimeException('Categoría no registrada o modificada durante la importación: ' . $name);
+            throw new RuntimeException('Categoría modificada durante la importación: ' . $name);
         }
         return (int) $existing->id;
     }
@@ -1586,13 +1589,17 @@ class ProductInventoryImportService
             return null;
         }
         if ($categoryId === null) {
+            if ($knownId === null) { return null; }
             throw new RuntimeException('Subcategoría sin categoría padre: ' . $name);
         }
 
         $existing = Subcategory::query()->where('category_id', $categoryId)
             ->where('is_active', true)->get(['id', 'name'])->first(fn ($item) => $this->normalizeText($item->name) === $this->normalizeText($name));
+        if (!$existing && $knownId === null) {
+            return null; // Subcategoría original pendiente, sin alta automática.
+        }
         if (!$existing || ($knownId !== null && (int) $knownId !== (int) $existing->id)) {
-            throw new RuntimeException('Subcategoría no registrada o modificada durante la importación: ' . $name);
+            throw new RuntimeException('Subcategoría modificada durante la importación: ' . $name);
         }
         return (int) $existing->id;
     }
