@@ -10,6 +10,7 @@ use App\Models\ProductVariantStock;
 use App\Services\MediaStorageService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\DB;
 
 class ProductController extends Controller
@@ -183,7 +184,7 @@ class ProductController extends Controller
         $product->forceFill(['stock' => $totalStock])->saveQuietly();
     }
 
-    private function normalizeVariantStocks(?string $value): array
+    private function normalizeVariantStocks(?string $value, ?int $productId = null): array
     {
         if (!$value) {
             return [];
@@ -196,6 +197,8 @@ class ProductController extends Controller
 
         $result = [];
         $seen = [];
+        $skuSeen = [];
+        $modelsByColor = [];
 
         foreach ($decoded as $variant) {
             if (!is_array($variant)) {
@@ -205,6 +208,12 @@ class ProductController extends Controller
             $color = trim((string) ($variant['color'] ?? ''));
             $size = trim((string) ($variant['size'] ?? ''));
             $stock = max(0, (int) ($variant['stock'] ?? 0));
+            $articleModel = trim((string) ($variant['article_model'] ?? ''));
+            $sku = trim((string) ($variant['sku'] ?? ''));
+
+            if (mb_strlen($articleModel) > 120 || mb_strlen($sku) > 120) {
+                throw ValidationException::withMessages(['variant_stocks' => 'El modelo y el SKU no pueden superar 120 caracteres.']);
+            }
 
             if ($color === '' || $size === '' || mb_strlen($color) > 50 || mb_strlen($size) > 10) {
                 continue;
@@ -215,8 +224,29 @@ class ProductController extends Controller
                 continue;
             }
 
+            $colorKey = mb_strtolower($color);
+            if (isset($modelsByColor[$colorKey]) && $modelsByColor[$colorKey] !== $articleModel) {
+                throw ValidationException::withMessages(['variant_stocks' => 'Un mismo color debe conservar un único modelo de artículo.']);
+            }
+            $modelsByColor[$colorKey] = $articleModel;
+            if ($sku !== '') {
+                $skuKey = mb_strtolower($sku);
+                if (isset($skuSeen[$skuKey])) {
+                    throw ValidationException::withMessages(['variant_stocks' => 'El SKU debe ser único por combinación de color y talla.']);
+                }
+                $skuSeen[$skuKey] = true;
+                $other = ProductVariantStock::query()->where('sku', $sku);
+                if ($productId !== null) {
+                    $other->where('product_id', '!=', $productId);
+                }
+                if ($other->exists()) {
+                    throw ValidationException::withMessages(['variant_stocks' => 'El SKU ya está asignado a otro artículo.']);
+                }
+            }
             $seen[$key] = true;
             $result[] = [
+                'article_model' => $articleModel !== '' ? $articleModel : null,
+                'sku' => $sku !== '' ? $sku : null,
                 'color' => $color,
                 'size' => $size,
                 'stock' => $stock,
@@ -243,6 +273,8 @@ class ProductController extends Controller
                 'color' => $variant['color'],
                 'size' => $variant['size'],
                 'stock' => $variant['stock'],
+                'article_model' => $variant['article_model'] ?? null,
+                'sku' => $variant['sku'] ?? null,
             ]);
 
             $sizeTotals[$variant['size']] = ($sizeTotals[$variant['size']] ?? 0) + $variant['stock'];
@@ -345,6 +377,9 @@ class ProductController extends Controller
                     ->where('product_code', 'like', '%' . $search . '%')
                     ->orWhere('name', 'like', '%' . $search . '%')
                     ->orWhere('model', 'like', '%' . $search . '%')
+                    ->orWhereHas('variantStocks', fn ($variant) => $variant
+                        ->where('article_model', 'like', '%' . $search . '%')
+                        ->orWhere('sku', 'like', '%' . $search . '%'))
                     ->orWhereHas('brand', fn ($brand) => $brand->where('name', 'like', '%' . $search . '%'));
             });
         }
@@ -397,6 +432,9 @@ class ProductController extends Controller
                     ->where('product_code', 'like', '%' . $search . '%')
                     ->orWhere('name', 'like', '%' . $search . '%')
                     ->orWhere('model', 'like', '%' . $search . '%')
+                    ->orWhereHas('variantStocks', fn ($variant) => $variant
+                        ->where('article_model', 'like', '%' . $search . '%')
+                        ->orWhere('sku', 'like', '%' . $search . '%'))
                     ->orWhereHas('brand', fn ($brand) => $brand->where('name', 'like', '%' . $search . '%'));
             });
         }
@@ -599,7 +637,7 @@ class ProductController extends Controller
             $validated['is_active'] = false;
         }
         $variantStocks = $request->has('variant_stocks')
-            ? $this->normalizeVariantStocks($request->input('variant_stocks'))
+            ? $this->normalizeVariantStocks($request->input('variant_stocks'), $product->id)
             : null;
         $sizeStocks = $request->has('size_stocks')
             ? $this->normalizeSizeStocks($request->input('size_stocks'))

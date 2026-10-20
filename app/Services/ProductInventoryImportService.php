@@ -976,7 +976,16 @@ class ProductInventoryImportService
                 $groupWarnings = array_merge($groupWarnings, $row['warnings']);
             }
 
+            $modelsByColor = [];
             foreach ($groupRows as $row) {
+                $modelColor = $this->normalizeText((string) ($row['color'] ?? ''));
+                $modelValue = trim((string) ($row['model'] ?? ''));
+                if ($modelColor !== '' && $modelValue !== '') {
+                    if (isset($modelsByColor[$modelColor]) && $modelsByColor[$modelColor] !== $modelValue) {
+                        $groupErrors[] = 'El color ' . $row['color'] . ' presenta modelos de artículo diferentes';
+                    }
+                    $modelsByColor[$modelColor] = $modelValue;
+                }
                 if (!$this->sameGeneralData($first, $row)) {
                     $groupErrors[] = 'Los datos generales del mismo CÓDIGO_PRODUCTO deben coincidir en todas sus filas';
                     break;
@@ -1039,6 +1048,7 @@ class ProductInventoryImportService
                     if (!in_array($variantSize, $colorSizes[$variant['color']], true)) {
                         $colorSizes[$variant['color']][] = $variantSize;
                     }
+                    $variant['article_model'] = $row['model'] !== '' ? $row['model'] : null;
                     $variants[] = $variant;
                     $totalStock += (int) $variant['stock'];
                 }
@@ -1319,6 +1329,10 @@ class ProductInventoryImportService
 
     private function replaceVariantInventory(Product $product, array $variants, int $unallocatedStock = 0): void
     {
+        // Preservar SKU y modelo manual existente si el Excel no aporta uno nuevo.
+        $previousVariantFields = $product->variantStocks()
+            ->get(['color', 'size', 'article_model', 'sku'])
+            ->keyBy(fn ($entry) => $this->variantKey($entry->color, $entry->size));
         $product->variantStocks()->delete();
         $product->sizes()->delete();
         $product->colors()->delete();
@@ -1328,8 +1342,11 @@ class ProductInventoryImportService
         $totalStock = 0;
 
         foreach ($variants as $variant) {
+            $prior = $previousVariantFields->get($this->variantKey($variant['color'], $variant['size']));
             ProductVariantStock::create([
                 'product_id' => $product->id,
+                'article_model' => $variant['article_model'] ?: ($prior?->article_model),
+                'sku' => $prior?->sku,
                 'color' => $variant['color'],
                 'size' => $variant['size'],
                 'stock' => $variant['stock'],
@@ -1387,7 +1404,7 @@ class ProductInventoryImportService
     private function sameGeneralData(array $left, array $right): bool
     {
         foreach ([
-            'action', 'name', 'model', 'brand', 'category', 'subcategory',
+            'action', 'name', 'brand', 'category', 'subcategory',
             'material', 'description', 'auto_publish',
         ] as $field) {
             if ($this->normalizeComparable($left[$field] ?? null) !== $this->normalizeComparable($right[$field] ?? null)) {
