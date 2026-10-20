@@ -1236,7 +1236,8 @@ class ProductInventoryImportService
         $reason = 'Importación masiva ' . $action . ' XLSX/CSV V2';
 
         if ($productExisted && !$hadVariantInventory) {
-            $newTotalStock = array_sum(array_map(fn ($variant) => (int) $variant['stock'], $newVariants));
+            // El stock total persistido incluye unidades pendientes de asignación a variantes.
+            $newTotalStock = (int) $product->stock;
 
             if ($previousTotalStock !== $newTotalStock) {
                 InventoryMovement::create([
