@@ -13,16 +13,27 @@ class ProductPublicationService
      */
     public function isReady(Product $product): bool
     {
+        $isSimple = $product->product_type === 'simple';
         if ((float) $product->price <= 0
             || (int) $product->stock <= 0
             || trim((string) $product->product_code) === ''
             || trim((string) $product->name) === ''
             || trim((string) $product->model) === ''
-            || trim((string) $product->size) === ''
-            || trim((string) $product->color) === ''
+            || (!$isSimple && trim((string) $product->size) === '')
+            || (!$isSimple && trim((string) $product->color) === '')
             || !$product->brand_id
             || !$product->category_id
         ) {
+            return false;
+        }
+
+        // Los productos simples requieren alta explícita y no pueden conservar
+        // variantes al pasar a stock maestro. Nunca cambia productos heredados.
+        if ($isSimple && (
+            trim((string) $product->size) !== ''
+            || trim((string) $product->color) !== ''
+            || $product->variantStocks()->exists()
+        )) {
             return false;
         }
 
