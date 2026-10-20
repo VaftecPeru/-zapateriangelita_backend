@@ -26,6 +26,15 @@ class ProductPublicationService
             return false;
         }
 
+        // Las unidades importadas sin talla/color asignados no son vendibles.
+        // Solo se aplica al inventario importado mediante V3 para mantener
+        // compatibilidad con productos históricos que no usan variantes.
+        if ($product->import_pending_data !== null
+            && (int) $product->variantStocks()->sum('stock') !== (int) $product->stock
+        ) {
+            return false;
+        }
+
         if (!$product->brand()->where('is_active', true)->exists()
             || !$product->category()->where('is_active', true)->exists()
         ) {

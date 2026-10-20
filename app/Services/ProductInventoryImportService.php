@@ -204,7 +204,7 @@ class ProductInventoryImportService
                 'product_code', 'name', 'model', 'brand_id', 'category_id',
                 'subcategory_id', 'price', 'stock', 'size', 'color',
                 'status', 'is_active', 'auto_publish', 'img', 'images',
-                'color_images', 'color_sizes',
+                'color_images', 'color_sizes', 'import_pending_data',
             ],
             'product_variant_stocks' => ['product_id', 'color', 'size', 'stock'],
             'product_sizes' => ['product_id', 'size', 'stock'],
