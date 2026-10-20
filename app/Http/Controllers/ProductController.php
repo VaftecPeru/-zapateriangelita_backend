@@ -527,10 +527,18 @@ class ProductController extends Controller
             'product_code' => 'nullable|string|max:100|unique:products,product_code',
             'name' => 'required|string|max:255',
             'model' => 'nullable|string|max:120',
+            'product_type' => 'nullable|in:simple,variable',
+            'gender' => 'nullable|in:mujer,hombre,ninos,unisex',
+            'barcode' => 'nullable|string|max:120|unique:products,barcode',
+            'collection_name' => 'nullable|string|max:120',
+            'seo_title' => 'nullable|string|max:255',
+            'seo_description' => 'nullable|string|max:500',
+
             'brand_id' => 'nullable|integer|exists:brands,id',
             'category_id' => 'required|integer|exists:categories,id',
             'subcategory_id' => 'nullable|integer|exists:subcategories,id',
             'price' => 'required|numeric|min:0',
+            'is_active' => 'sometimes|boolean',
             'discounted_price' => 'nullable|numeric|min:0',
             'stock' => 'required|integer|min:0',
             'size' => 'nullable|string|max:50',
@@ -562,6 +570,15 @@ class ProductController extends Controller
                 'source' => 'manual',
                 'unallocated_stock' => (int) $validated['stock'],
             ];
+        }
+
+        if (($validated['product_type'] ?? '') === 'simple'
+            && ($variantStocks || trim((string) ($validated['size'] ?? '')) !== ''
+                || trim((string) ($validated['color'] ?? '')) !== '')
+        ) {
+            throw ValidationException::withMessages([
+                'product_type' => 'Un producto simple no admite variantes ni tallas/colores.',
+            ]);
         }
 
         if ($variantStocks) {
@@ -608,9 +625,12 @@ class ProductController extends Controller
                 }
             }
 
-            DB::transaction(function () use (&$product, $validated, $variantStocks, $sizeStocks) {
+            $requestDraft = $request->has('is_active') && !$request->boolean('is_active');
+            DB::transaction(function () use (&$product, $validated, $variantStocks, $sizeStocks, $requestDraft) {
                 // Un alta manual sin precio o fotografía comienza en borrador.
-                $validated['auto_publish'] = true;
+                // El alta admite borrador explícito, aun con precio y stock.
+                // Los clientes históricos sin is_active conservan la publicación automática.
+                $validated['auto_publish'] = !$requestDraft;
                 $validated['is_active'] = false;
                 $product = Product::create($validated);
                 $this->syncVariants($product);
@@ -654,6 +674,12 @@ class ProductController extends Controller
     {
         $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
             'product_code' => 'nullable|string|max:100|unique:products,product_code,' . $product->id,
+            'product_type' => 'nullable|in:simple,variable',
+            'gender' => 'nullable|in:mujer,hombre,ninos,unisex',
+            'barcode' => 'nullable|string|max:120|unique:products,barcode,' . $product->id,
+            'collection_name' => 'nullable|string|max:120',
+            'seo_title' => 'nullable|string|max:255',
+            'seo_description' => 'nullable|string|max:500',
             'name' => 'nullable|string|max:255',
             'model' => 'nullable|string|max:120',
             'brand_id' => 'nullable|integer|exists:brands,id',
@@ -699,7 +725,20 @@ class ProductController extends Controller
             : null;
         $resetVariantStocks = $request->has('size_stocks') && !empty($sizeStocks) && !$request->has('variant_stocks');
 
-        if (is_array($variantStocks) && $request->has('variant_stocks')) {
+        if (($validated['product_type'] ?? $product->product_type) === 'simple'
+            && ((is_array($variantStocks) && $variantStocks)
+                || trim((string) (array_key_exists('size', $validated)
+                    ? $validated['size'] : $product->size)) !== ''
+                || trim((string) (array_key_exists('color', $validated)
+                    ? $validated['color'] : $product->color)) !== '')
+        ) {
+            return response()->json(['errors' => [
+                'product_type' => ['Un producto simple no admite variantes ni tallas/colores.'],
+            ]], 422);
+        }
+
+        if (is_array($variantStocks) && $request->has('variant_stocks')
+            && (($validated['product_type'] ?? $product->product_type) !== 'simple')) {
             $validated['stock'] = array_sum(array_column($variantStocks, 'stock'));
         } elseif (is_array($sizeStocks) && !empty($sizeStocks) && $request->has('size_stocks')) {
             $validated['stock'] = array_sum(array_column($sizeStocks, 'stock'));
@@ -712,7 +751,8 @@ class ProductController extends Controller
             : null;
         $validated['discount'] = $discount > 0 ? (string) $discount : null;
 
-        $colors = collect(preg_split('/[,\/|]+/', (string) ($validated['color'] ?? $product->color)))
+        $colors = collect(preg_split('/[,\/|]+/', (string) (array_key_exists('color', $validated)
+            ? $validated['color'] : $product->color)))
             ->map(fn ($color) => trim($color))
             ->filter()
             ->unique()
