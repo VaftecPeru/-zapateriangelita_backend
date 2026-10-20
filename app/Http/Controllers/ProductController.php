@@ -202,12 +202,16 @@ class ProductController extends Controller
 
         foreach ($decoded as $variant) {
             if (!is_array($variant)) {
-                continue;
+                throw ValidationException::withMessages([
+                    'variant_stocks' => 'Cada variante debe contener color, talla y una cantidad válida.',
+                ]);
             }
 
             $color = trim((string) ($variant['color'] ?? ''));
             $size = trim((string) ($variant['size'] ?? ''));
-            $stock = max(0, (int) ($variant['stock'] ?? 0));
+            $stock = filter_var($variant['stock'] ?? null, FILTER_VALIDATE_INT, [
+                'options' => ['min_range' => 0],
+            ]);
             $articleModel = trim((string) ($variant['article_model'] ?? ''));
             $sku = trim((string) ($variant['sku'] ?? ''));
 
@@ -215,13 +219,18 @@ class ProductController extends Controller
                 throw ValidationException::withMessages(['variant_stocks' => 'El modelo y el SKU no pueden superar 120 caracteres.']);
             }
 
-            if ($color === '' || $size === '' || mb_strlen($color) > 50 || mb_strlen($size) > 10) {
-                continue;
+            if ($color === '' || $size === '' || mb_strlen($color) > 50
+                || mb_strlen($size) > 10 || $stock === false) {
+                throw ValidationException::withMessages([
+                    'variant_stocks' => 'La variante requiere color (máx. 50), talla (máx. 10) y stock entero no negativo.',
+                ]);
             }
 
             $key = mb_strtolower($color) . '|' . mb_strtolower($size);
             if (isset($seen[$key])) {
-                continue;
+                throw ValidationException::withMessages([
+                    'variant_stocks' => 'No se puede repetir la misma combinación de color y talla.',
+                ]);
             }
 
             $colorKey = mb_strtolower($color);
@@ -247,6 +256,9 @@ class ProductController extends Controller
             $result[] = [
                 'article_model' => $articleModel !== '' ? $articleModel : null,
                 'sku' => $sku !== '' ? $sku : null,
+                // Clientes antiguos no incluyen estos campos: conservar valores existentes.
+                'article_model_provided' => array_key_exists('article_model', $variant),
+                'sku_provided' => array_key_exists('sku', $variant),
                 'color' => $color,
                 'size' => $size,
                 'stock' => $stock,
@@ -258,31 +270,70 @@ class ProductController extends Controller
 
     private function syncVariantStocks(Product $product, array $variants): void
     {
-        $product->variantStocks()->delete();
-
-        if (!$variants) {
-            return;
-        }
-
+        $existing = $product->variantStocks()->get()
+            ->keyBy(fn ($row) => mb_strtolower($row->color) . '|' . mb_strtolower($row->size));
+        $incoming = [];
         $sizeTotals = [];
         $totalStock = 0;
 
         foreach ($variants as $variant) {
-            ProductVariantStock::create([
-                'product_id' => $product->id,
-                'color' => $variant['color'],
-                'size' => $variant['size'],
-                'stock' => $variant['stock'],
-                'article_model' => $variant['article_model'] ?? null,
-                'sku' => $variant['sku'] ?? null,
-            ]);
-
+            $key = mb_strtolower($variant['color']) . '|' . mb_strtolower($variant['size']);
+            $incoming[$key] = true;
             $sizeTotals[$variant['size']] = ($sizeTotals[$variant['size']] ?? 0) + $variant['stock'];
             $totalStock += $variant['stock'];
         }
 
-        $product->sizes()->whereNotIn('size', array_keys($sizeTotals))->delete();
+        // Eliminar únicamente las tallas/colores retirados. Mantener IDs de
+        // variantes existentes para no destruir referencias ni trazabilidad.
+        foreach ($existing as $key => $row) {
+            if (!isset($incoming[$key])) {
+                $row->delete();
+            }
+        }
 
+        // Producto simple o registro manual heredado sin desglose: mantener
+        // las existencias por talla gestionadas por syncVariants/syncSizeStocks.
+        if (!$variants) {
+            return;
+        }
+
+        // Permitir el intercambio controlado de dos SKU dentro del mismo producto.
+        // Se ejecuta dentro de la transacción del controlador.
+        foreach ($variants as $variant) {
+            $key = mb_strtolower($variant['color']) . '|' . mb_strtolower($variant['size']);
+            $row = $existing->get($key);
+            if ($row && ($variant['sku_provided'] ?? true)
+                && $row->sku !== ($variant['sku'] ?? null)) {
+                $row->forceFill(['sku' => null])->save();
+            }
+        }
+
+        foreach ($variants as $variant) {
+            $key = mb_strtolower($variant['color']) . '|' . mb_strtolower($variant['size']);
+            $row = $existing->get($key);
+            $fields = [
+                'color' => $variant['color'],
+                'size' => $variant['size'],
+                'stock' => $variant['stock'],
+            ];
+            if (!$row || ($variant['article_model_provided'] ?? true)) {
+                $fields['article_model'] = $variant['article_model'] ?? null;
+            }
+            if (!$row || ($variant['sku_provided'] ?? true)) {
+                $fields['sku'] = $variant['sku'] ?? null;
+            }
+            if ($row) {
+                // Eloquent solo actualiza si realmente cambiaron los atributos.
+                $row->fill($fields);
+                if ($row->isDirty()) {
+                    $row->save();
+                }
+            } else {
+                ProductVariantStock::create(['product_id' => $product->id] + $fields);
+            }
+        }
+
+        $product->sizes()->whereNotIn('size', array_keys($sizeTotals))->delete();
         foreach ($sizeTotals as $size => $stock) {
             ProductSize::updateOrCreate(
                 ['product_id' => $product->id, 'size' => $size],
@@ -290,7 +341,11 @@ class ProductController extends Controller
             );
         }
 
-        $product->forceFill(['stock' => $totalStock])->saveQuietly();
+        // Sin variantes el producto simple conserva su stock declarado; con
+        // variantes prevalece siempre la suma verificable de tallas.
+        if ($variants) {
+            $product->forceFill(['stock' => $totalStock])->saveQuietly();
+        }
     }
 
     private function processColorImages(Request $request, array $colors, ?array $existing = null): ?array

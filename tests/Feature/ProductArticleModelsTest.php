@@ -123,4 +123,83 @@ class ProductArticleModelsTest extends TestCase
         $this->assertSame(0, $product->variantStocks()->count());
         $this->assertSame(7, (int) $product->stock);
     }
+    public function test_repeated_color_and_size_is_rejected_without_changing_stock(): void
+    {
+        $this->postJson('/api/products', $this->productData())->assertCreated();
+        $product = Product::where('product_code', '2001')->firstOrFail();
+        $before = $product->variantStocks()->sum('stock');
+        $payload = $this->productData();
+        $entries = json_decode($payload['variant_stocks'], true);
+        $entries[] = $entries[0];
+        $payload['variant_stocks'] = json_encode($entries);
+        $this->putJson('/api/products/' . $product->id, $payload)
+            ->assertUnprocessable()->assertJsonValidationErrors('variant_stocks');
+        $this->assertSame($before, $product->variantStocks()->sum('stock'));
+        $this->assertSame(4, $product->variantStocks()->count());
+    }
+
+    public function test_negative_or_nonnumeric_stock_is_rejected_not_silently_clamped(): void
+    {
+        foreach ([-3, 'tres', 2.5] as $invalid) {
+            $payload = $this->productData();
+            $entries = json_decode($payload['variant_stocks'], true);
+            $entries[0]['stock'] = $invalid;
+            $payload['variant_stocks'] = json_encode($entries);
+            $this->postJson('/api/products', $payload)
+                ->assertUnprocessable()->assertJsonValidationErrors('variant_stocks');
+            $this->assertDatabaseCount('products', 0);
+        }
+    }
+
+    public function test_editing_only_article_model_or_price_does_not_recreate_variant_rows(): void
+    {
+        $this->postJson('/api/products', $this->productData())->assertCreated();
+        $product = Product::where('product_code', '2001')->firstOrFail();
+        $ids = $product->variantStocks()->orderBy('id')->pluck('id')->all();
+        $payload = $this->productData();
+        $payload['price'] = 120;
+        $entries = json_decode($payload['variant_stocks'], true);
+        $entries[0]['article_model'] = 'NUEVO-N';
+        $entries[1]['article_model'] = 'NUEVO-N';
+        $payload['variant_stocks'] = json_encode($entries);
+        $this->putJson('/api/products/' . $product->id, $payload)->assertOk();
+        $this->assertSame($ids, $product->variantStocks()->orderBy('id')->pluck('id')->all());
+        $this->assertSame(14, (int) $product->fresh()->stock);
+    }
+
+    public function test_legacy_client_update_does_not_erase_existing_models_or_skus(): void
+    {
+        $this->postJson('/api/products', $this->productData())->assertCreated();
+        $product = Product::where('product_code', '2001')->firstOrFail();
+        $payload = $this->productData();
+        $entries = json_decode($payload['variant_stocks'], true);
+        foreach ($entries as &$entry) {
+            unset($entry['article_model'], $entry['sku']);
+        }
+        unset($entry);
+        $payload['variant_stocks'] = json_encode($entries);
+        $this->putJson('/api/products/' . $product->id, $payload)->assertOk();
+        $this->assertDatabaseHas('product_variant_stocks', [
+            'product_id' => $product->id, 'color' => 'Negro', 'size' => '38',
+            'article_model' => '2001-N', 'sku' => '2001-N-38',
+        ]);
+    }
+
+    public function test_sku_swap_within_one_product_keeps_inventory_and_ids(): void
+    {
+        $this->postJson('/api/products', $this->productData())->assertCreated();
+        $product = Product::where('product_code', '2001')->firstOrFail();
+        $ids = $product->variantStocks()->orderBy('id')->pluck('id')->all();
+        $payload = $this->productData();
+        $entries = json_decode($payload['variant_stocks'], true);
+        $entries[0]['sku'] = '2001-N-39';
+        $entries[1]['sku'] = '2001-N-38';
+        $payload['variant_stocks'] = json_encode($entries);
+        $this->putJson('/api/products/' . $product->id, $payload)->assertOk();
+        $this->assertDatabaseHas('product_variant_stocks', [
+            'product_id' => $product->id, 'color' => 'Negro', 'size' => '38', 'sku' => '2001-N-39',
+        ]);
+        $this->assertSame($ids, $product->variantStocks()->orderBy('id')->pluck('id')->all());
+    }
+
 }

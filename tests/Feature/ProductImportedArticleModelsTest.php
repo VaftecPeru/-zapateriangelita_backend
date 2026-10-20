@@ -23,7 +23,7 @@ class ProductImportedArticleModelsTest extends TestCase
         Category::create(['name' => 'Zapatillas', 'order' => 1, 'is_active' => true]);
     }
 
-    private function file(string $beigeModel = '2001-B'): UploadedFile
+    private function file(string $beigeModel = '2001-B', string $action = 'CREAR'): UploadedFile
     {
         $headers = [
             'ACCIÓN','CÓDIGO_PRODUCTO','NOMBRE','MODELO','MARCA','CATEGORÍA','SUBCATEGORÍA',
@@ -31,8 +31,8 @@ class ProductImportedArticleModelsTest extends TestCase
             'IMAGEN_PRINCIPAL','IMAGEN_2','IMAGEN_3','ESTADO','OBSERVACIONES','VALIDACIÓN',
         ];
         $rows = [
-            ['CREAR','2001','Zapatilla Casual Dama','2001-N','Angelita','Zapatillas','','0','','','Negro','38','3','','','','','BORRADOR','','OK'],
-            ['CREAR','2001','Zapatilla Casual Dama',$beigeModel,'Angelita','Zapatillas','','0','','','Beige','38','4','','','','','BORRADOR','','OK'],
+            [$action,'2001','Zapatilla Casual Dama','2001-N','Angelita','Zapatillas','','0','','','Negro','38','3','','','','','BORRADOR','','OK'],
+            [$action,'2001','Zapatilla Casual Dama',$beigeModel,'Angelita','Zapatillas','','0','','','Beige','38','4','','','','','BORRADOR','','OK'],
         ];
         $handle = fopen('php://temp', 'w+');
         fputcsv($handle, $headers);
@@ -67,5 +67,27 @@ class ProductImportedArticleModelsTest extends TestCase
             'product_id' => $product->id, 'color' => 'Beige',
             'size' => '38', 'article_model' => '2001-B', 'stock' => 4,
         ]);
+    }
+
+    public function test_reimport_preserves_manually_assigned_sku(): void
+    {
+        $this->post('/api/admin/products/import/commit', [
+            'file' => $this->file(),
+        ], ['Accept' => 'application/json'])->assertOk()->assertJsonPath('summary.created', 1);
+
+        $product = Product::where('product_code', '2001')->firstOrFail();
+        $row = $product->variantStocks()->where('color', 'Negro')->firstOrFail();
+        $row->update(['sku' => '2001-N-38']);
+
+        $this->post('/api/admin/products/import/commit', [
+            'file' => $this->file('2001-B', 'ACTUALIZAR'),
+        ], ['Accept' => 'application/json'])->assertOk()->assertJsonPath('summary.updated', 1);
+
+        $this->assertDatabaseCount('products', 1);
+        $this->assertDatabaseHas('product_variant_stocks', [
+            'product_id' => $product->id, 'color' => 'Negro',
+            'size' => '38', 'sku' => '2001-N-38', 'article_model' => '2001-N',
+        ]);
+        $this->assertSame(7, (int) $product->fresh()->stock);
     }
 }
