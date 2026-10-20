@@ -23,16 +23,9 @@ class ProductInventoryImportService
     private const MAX_MEANINGFUL_ROWS = 5000;
     private const MAX_XLSX_XML_BYTES = 25_000_000;
 
-    private const REQUIRED_HEADERS = [
-        'accion',
-        'codigo_producto',
-        'nombre',
-        'marca',
-        'color',
-        'talla',
-        'stock',
-        'estado',
-    ];
+    // El formato admite campos opcionales; basta una columna identificable.
+    // Una fila totalmente vacía nunca produce un producto.
+    private const RECOGNIZED_ANCHORS = ['codigo_producto', 'nombre', 'modelo', 'marca'];
 
     public function template(): string
     {
@@ -572,13 +565,13 @@ class ProductInventoryImportService
             }
 
             $found = array_keys($headerMap);
-            if (count(array_intersect(self::REQUIRED_HEADERS, $found)) === count(self::REQUIRED_HEADERS)) {
+            if (count($found) >= 3 || count(array_intersect(self::RECOGNIZED_ANCHORS, $found)) >= 1) {
                 return [$index, $headerMap];
             }
         }
 
         throw new RuntimeException(
-            'No se encontró la fila de encabezados esperada. Verifica que la plantilla incluya ACCIÓN, CÓDIGO_PRODUCTO, NOMBRE, MARCA, PRECIO, COLOR, TALLA, STOCK y ESTADO. CATEGORÍA es opcional.'
+            'No se encontraron encabezados reconocibles. Usa al menos una columna como CÓDIGO_PRODUCTO, NOMBRE, MODELO o MARCA.'
         );
     }
 
@@ -684,8 +677,18 @@ class ProductInventoryImportService
                 $defaults[$field] ?? null,
             );
 
-            $action = $this->normalizeAction($generalValue('accion'));
-            $name = trim((string) $generalValue('nombre'));
+            $actionInput = trim((string) $generalValue('accion'));
+            $action = $actionInput === ''
+                ? ($code !== '' && $existingProducts->has($this->normalizeText($code)) ? 'ACTUALIZAR' : 'CREAR')
+                : $this->normalizeAction($actionInput);
+            $sourceName = trim((string) $generalValue('nombre'));
+            $namePending = $sourceName === '';
+            $name = $namePending
+                ? 'Producto por identificar · ' . ($code !== '' ? $code : 'fila ' . $source['row'])
+                : $sourceName;
+            if ($namePending) { $warnings[] = 'Nombre comercial pendiente: nombre interno de borrador'; }
+            if ($code === '') { $warnings[] = 'Código original pendiente: queda vacío, sin crear códigos artificiales'; }
+            if ($actionInput === '') { $warnings[] = 'ACCIÓN detectada automáticamente: ' . $action; }
             $model = trim((string) $generalValue('modelo'));
             $brandName = $this->catalogMappedName(trim((string) $generalValue('marca')), $mappings['brands'] ?? []);
             $categoryName = $this->canonicalCategoryName($this->catalogMappedName(trim((string) $generalValue('categoria')), $mappings['categories'] ?? []));
@@ -701,6 +704,7 @@ class ProductInventoryImportService
             $observations = trim((string) ($raw['observaciones'] ?? ''));
             $validation = trim((string) ($raw['validacion'] ?? ''));
             $state = mb_strtoupper($this->normalizeText((string) $generalValue('estado')));
+            if ($state === '') { $state = 'BORRADOR'; $warnings[] = 'ESTADO vacío: se conserva como borrador'; }
 
             $rawPrice = $generalValue('precio');
             $price = $this->decimalValue($rawPrice);
@@ -721,19 +725,16 @@ class ProductInventoryImportService
             $offerSource = $generalValue('precio_oferta');
             $offerRaw = trim((string) ($offerSource ?? ''));
             $offerPrice = $offerRaw === '' ? null : $this->decimalValue($offerSource);
-            $stock = $this->integerValue($raw['stock'] ?? null);
+            $stockWasMissing = trim((string) ($raw['stock'] ?? '')) === '';
+            $stock = $stockWasMissing ? null : $this->integerValue($raw['stock'] ?? null);
 
             if (!in_array($action, ['CREAR', 'ACTUALIZAR'], true)) {
                 $errors[] = 'ACCIÓN debe ser CREAR o ACTUALIZAR';
             }
-            if ($code === '') {
-                $errors[] = 'CÓDIGO_PRODUCTO es obligatorio';
-            } elseif (mb_strlen($code) > 100) {
+            if ($code !== '' && mb_strlen($code) > 100) {
                 $errors[] = 'CÓDIGO_PRODUCTO supera 100 caracteres';
             }
-            if ($name === '') {
-                $errors[] = 'NOMBRE es obligatorio';
-            } elseif (mb_strlen($name) > 255) {
+            if (mb_strlen($name) > 255) {
                 $errors[] = 'NOMBRE supera 255 caracteres';
             }
             if (mb_strlen($model) > 120) {
@@ -745,14 +746,14 @@ class ProductInventoryImportService
                 ? null
                 : $categoryLookup->get($categoryNormalized);
             if ($categoryName !== '' && !$category) {
-                $errors[] = 'Categoría no registrada: ' . $categoryName . '. Resuélvela en Paso 0.';
+                $warnings[] = 'Categoría pendiente: ' . $categoryName . '. Producto guardado como borrador.';
             }
 
             $brand = $brandLookup->get($this->brandAlias($brandName));
             if ($brandName === '') {
-                $errors[] = 'MARCA es obligatoria';
+                $warnings[] = 'Marca pendiente; borrador';
             } elseif (!$brand) {
-                $errors[] = 'Marca no registrada: ' . $brandName;
+                $warnings[] = 'Marca no registrada: ' . $brandName . '. Se guarda sin vincular el catálogo.';
             } elseif ($this->normalizeText($brandName) !== $this->normalizeText($brand->name)) {
                 $warnings[] = 'Marca normalizada: ' . $brandName . ' → ' . $brand->name;
             }
@@ -765,12 +766,12 @@ class ProductInventoryImportService
                 );
 
                 if (!$subcategory) {
-                    $errors[] = 'Subcategoría no registrada: ' . $subcategoryName . ' dentro de ' . $category->name . '. Resuélvela en Paso 0.';
+                    $warnings[] = 'Subcategoría pendiente: ' . $subcategoryName . ' dentro de ' . $category->name;
                 }
             } elseif ($subcategoryName !== '' && $categoryName !== '') {
-                $errors[] = 'Subcategoría pendiente: ' . $subcategoryName . '. Registra primero la categoría ' . $categoryName . '.';
+                $warnings[] = 'Subcategoría pendiente: ' . $subcategoryName . '. Primero se debe aprobar la categoría ' . $categoryName;
             } elseif ($subcategoryName !== '') {
-                $errors[] = 'SUBCATEGORÍA requiere CATEGORÍA para establecer su relación';
+                $warnings[] = 'Subcategoría sin categoría padre: queda pendiente de vincular';
             }
 
             if ($price == 0.0) {
@@ -783,17 +784,15 @@ class ProductInventoryImportService
             }
 
             if ($color === '') {
-                $errors[] = 'COLOR es obligatorio';
+                $warnings[] = 'COLOR pendiente: stock sin asignación de variante';
             } elseif (mb_strlen($color) > 50) {
                 $errors[] = 'COLOR supera 50 caracteres';
             }
             // TALLA puede contener una lista mayor de 10 caracteres (ej. 18,19,20,21).
             // Cada talla INDIVIDUAL debe caber en product_sizes.size y
             // product_variant_stocks.size: VARCHAR(10) en MariaDB histórico.
-            if ($size === '') {
-                $errors[] = 'TALLA es obligatoria';
-            }
-            if ($stock === null || $stock < 0) {
+            if ($size === '') { $warnings[] = 'TALLA pendiente: stock sin asignación de variante'; }
+            if (!$stockWasMissing && ($stock === null || $stock < 0)) {
                 $errors[] = 'STOCK debe ser un entero mayor o igual a 0';
             }
 
@@ -808,8 +807,10 @@ class ProductInventoryImportService
                 }
             }
             $expandedVariants = [];
+            $unallocatedStock = 0;
             if ($breakdown === '' && count($sizeTokens) > 1) {
-                $errors[] = 'STOCK_POR_TALLA es obligatorio cuando TALLA contiene varias tallas (ej. 2:3;3:4;4:2)';
+                $warnings[] = 'Stock total sin desglose por talla: conservar sin asignar y NO publicar';
+                $unallocatedStock = max(0, (int) ($stock ?? 0));
             } elseif ($breakdown !== '') {
                 $seenSizes = [];
                 $quantities = [];
@@ -842,15 +843,30 @@ class ProductInventoryImportService
                     || array_diff(array_keys($quantities), $declaredSizes)) {
                     $errors[] = 'Las tallas de STOCK_POR_TALLA deben coincidir exactamente con TALLA';
                 }
+                if ($stockWasMissing) {
+                    $stock = array_sum($quantities);
+                    $warnings[] = 'STOCK calculado a partir del desglose real por talla';
+                }
                 if ($stock !== null && array_sum($quantities) !== $stock) {
                     $errors[] = 'STOCK no coincide con la suma de STOCK_POR_TALLA';
                 }
-            } elseif ($size !== '') {
+            } elseif ($size !== '' && $color !== '') {
                 $expandedVariants[] = ['color' => $color, 'size' => $size, 'stock' => $stock ?? 0];
+            } else {
+                $unallocatedStock = max(0, (int) ($stock ?? 0));
             }
+            if ($color === '' && $expandedVariants) {
+                $expandedVariants = [];
+                $unallocatedStock = max(0, (int) ($stock ?? 0));
+            }
+            if ($stockWasMissing && $breakdown === '') {
+                $warnings[] = 'STOCK vacío: se registra 0 hasta conocer las cantidades';
+            }
+            $stock ??= 0;
 
             if (!in_array($state, ['ACTIVO', 'INACTIVO', 'ACTIVE', 'INACTIVE', 'BORRADOR', 'DRAFT'], true)) {
-                $errors[] = 'ESTADO debe ser ACTIVO, INACTIVO o BORRADOR';
+                $warnings[] = 'ESTADO desconocido; se usará BORRADOR';
+                $state = 'BORRADOR';
             }
             $autoPublish = in_array($state, ['ACTIVO', 'ACTIVE'], true);
             $isActive = false; // Nunca publicar antes de guardar y validar inventario.
@@ -884,6 +900,9 @@ class ProductInventoryImportService
                 'action' => $action,
                 'code' => $code,
                 'name' => $name,
+                'name_pending' => $namePending,
+                'unallocated_stock' => $unallocatedStock,
+                'catalog_pending' => ($brandName !== '' && !$brand) || ($categoryName !== '' && !$category) || ($subcategoryName !== '' && !$subcategory),
                 'model' => $model,
                 'brand' => $brand?->name ?? $brandName,
                 'brand_id' => $brand?->id,
@@ -981,8 +1000,11 @@ class ProductInventoryImportService
             $allImages = [];
             $variants = [];
             $totalStock = 0;
+            $unallocatedTotal = 0;
 
             foreach ($groupRows as $row) {
+                $unallocatedTotal += (int) ($row['unallocated_stock'] ?? 0);
+                $totalStock += (int) ($row['unallocated_stock'] ?? 0);
                 if ($row['color'] !== '' && !in_array($row['color'], $colors, true)) {
                     $colors[] = $row['color'];
                 }
@@ -1009,7 +1031,9 @@ class ProductInventoryImportService
             }
 
             $willPublish = count($groupErrors) === 0
-                && $first['auto_publish'] && (float) $first['price'] > 0
+                && $unallocatedTotal === 0 && !$first['name_pending']
+                && $first['code'] !== '' && !$first['catalog_pending']
+                && count($variants) > 0 && $first['auto_publish'] && (float) $first['price'] > 0
                 && $totalStock > 0
                 && $first['brand_id'] && $first['category_id']
                 && trim((string) $first['model']) !== '';
@@ -1021,6 +1045,19 @@ class ProductInventoryImportService
                 'code' => $first['code'],
                 'action' => $first['action'],
                 'name' => $first['name'],
+                'name_pending' => $first['name_pending'],
+                'unallocated_stock' => $unallocatedTotal,
+                'import_pending_data' => [
+                    'source_rows' => array_map(static fn ($r) => [
+                        'row' => $r['row'], 'code' => $r['code'],
+                        'brand' => $r['brand'], 'category' => $r['category'],
+                        'subcategory' => $r['subcategory'],
+                        'color' => $r['color'], 'size' => $r['size'],
+                        'stock' => $r['stock'],
+                        'unallocated_stock' => $r['unallocated_stock'],
+                        'warnings' => $r['warnings'],
+                    ], $groupRows),
+                ],
                 'model' => $first['model'],
                 'brand' => $first['brand'],
                 'brand_id' => $first['brand_id'],
@@ -1117,7 +1154,7 @@ class ProductInventoryImportService
         );
 
         $attributes = [
-            'product_code' => $group['code'],
+            'product_code' => $group['code'] !== '' ? $group['code'] : null,
             'name' => $group['name'],
             'model' => $group['model'] !== '' ? $group['model'] : null,
             'brand_id' => $group['brand_id'],
@@ -1135,8 +1172,11 @@ class ProductInventoryImportService
             'description' => $group['description'] !== '' ? $group['description'] : null,
             'status' => $marketingStatus,
             'is_active' => false,
-            'auto_publish' => (bool) $group['auto_publish'],
+            'auto_publish' => (bool) $group['auto_publish']
+                && !$group['name_pending'] && $group['code'] !== ''
+                && (int) $group['unallocated_stock'] === 0,
             'color_sizes' => $group['color_sizes'] ?: null,
+            'import_pending_data' => $group['import_pending_data'],
         ];
 
         if ($group['images']) {
@@ -1152,7 +1192,7 @@ class ProductInventoryImportService
         $product->fill($attributes);
         $product->save();
 
-        $this->replaceVariantInventory($product, $group['variants']);
+        $this->replaceVariantInventory($product, $group['variants'], (int) $group['unallocated_stock']);
         $this->recordInventoryImportMovements(
             $product,
             $productExisted,
@@ -1238,7 +1278,7 @@ class ProductInventoryImportService
         return $this->normalizeText($color) . '|' . $this->normalizeText($size);
     }
 
-    private function replaceVariantInventory(Product $product, array $variants): void
+    private function replaceVariantInventory(Product $product, array $variants, int $unallocatedStock = 0): void
     {
         $product->variantStocks()->delete();
         $product->sizes()->delete();
@@ -1300,7 +1340,9 @@ class ProductInventoryImportService
             ]);
         }
 
-        $product->forceFill(['stock' => $totalStock])->saveQuietly();
+        // Existencias sin talla/color permanecen en el total, pero jamás
+        // se reparten artificialmente ni se habilitan para el checkout.
+        $product->forceFill(['stock' => $totalStock + $unallocatedStock])->saveQuietly();
     }
 
     private function sameGeneralData(array $left, array $right): bool
