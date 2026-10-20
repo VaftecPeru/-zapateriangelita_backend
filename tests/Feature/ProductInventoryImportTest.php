@@ -420,13 +420,13 @@ class ProductInventoryImportTest extends TestCase
             'color' => 'Negro',
             'auto_publish' => true,
         ])->save();
-        app(\\App\\Services\\ProductPublicationService::class)->synchronize($product->fresh());
+        app(\App\Services\ProductPublicationService::class)->synchronize($product->fresh());
         $this->assertFalse((bool) $product->fresh()->is_active);
     }
 
     public function test_v3_rejects_missing_pending_data_migration_before_writing_products(): void
     {
-        \\Illuminate\\Support\\Facades\\Schema::table('products', function (\\Illuminate\\Database\\Schema\\Blueprint $table): void {
+        \Illuminate\Support\Facades\Schema::table('products', function (\Illuminate\Database\Schema\Blueprint $table): void {
             $table->dropColumn('import_pending_data');
         });
 
