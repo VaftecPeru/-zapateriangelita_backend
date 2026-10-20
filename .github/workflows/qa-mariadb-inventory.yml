@@ -1,7 +1,9 @@
-name: QA MariaDB inventory V2 (isolated)
+name: QA MariaDB inventory V3 (isolated)
 on:
+  push:
+    branches: [develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
   workflow_dispatch:
 permissions:
   contents: read
@@ -61,5 +63,7 @@ jobs:
         run: php artisan migrate:fresh --force
       - name: Test inventory, catalogs, cart and stock reservation on MariaDB
         run: vendor/bin/phpunit --testdox tests/Feature/ProductInventoryImportTest.php
+      - name: Test manual variants and unallocated inventory movements on MariaDB
+        run: vendor/bin/phpunit --testdox tests/Feature/ProductManualInventorySafetyTest.php tests/Feature/UnallocatedInventoryMovementTest.php
       - name: Test checkout + payment integration regressions
         run: vendor/bin/phpunit --testdox tests/Feature/OpenpayWebhookReconciliationTest.php
