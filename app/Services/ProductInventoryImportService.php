@@ -71,13 +71,13 @@ class ProductInventoryImportService
 
             $rows = [
                 ['ZAPATERÍA ANGELITA — PLANTILLA DE IMPORTACIÓN DE PRODUCTOS E INVENTARIO'],
-                ['Plantilla V2 · PRECIO es opcional (vacío o 0 MXN = borrador). STOCK_POR_TALLA requiere desglose para varias tallas. Registra marcas y categorías en Paso 0.'],
+                ['Plantilla V3 · Todos los campos son opcionales. Datos faltantes = borrador; cantidades sin desglose quedan sin talla asignada. Los códigos de libreta jamás se sustituyen.'],
                 [],
                 [
-                    'ACCIÓN*', 'CÓDIGO_PRODUCTO*', 'NOMBRE*', 'MODELO', 'MARCA*',
+                    'ACCIÓN', 'CÓDIGO_PRODUCTO', 'NOMBRE', 'MODELO', 'MARCA',
                     'CATEGORÍA', 'SUBCATEGORÍA', 'PRECIO', 'PRECIO_OFERTA', 'MATERIAL',
-                    'COLOR*', 'TALLA*', 'STOCK*', 'STOCK_POR_TALLA', 'DESCRIPCIÓN', 'IMAGEN_PRINCIPAL',
-                    'IMAGEN_2', 'IMAGEN_3', 'ESTADO*', 'OBSERVACIONES', 'VALIDACIÓN',
+                    'COLOR', 'TALLA', 'STOCK', 'STOCK_POR_TALLA', 'DESCRIPCIÓN', 'IMAGEN_PRINCIPAL',
+                    'IMAGEN_2', 'IMAGEN_3', 'ESTADO', 'OBSERVACIONES', 'VALIDACIÓN',
                 ],
             ];
 
