@@ -529,6 +529,9 @@ class ProductController extends Controller
                 $this->syncVariantStocks($product, $variantStocks);
                 app(ProductPublicationService::class)->synchronize($product->fresh());
             });
+            // La sincronización de publicación opera sobre una instancia fresh.
+            // Devolver también el estado persistido, no el is_active inicial.
+            $product = $product->fresh();
             $product->load('sizes', 'colors', 'variantStocks');
             return response()->json($product, 201);
         } catch (\Throwable $e) {
