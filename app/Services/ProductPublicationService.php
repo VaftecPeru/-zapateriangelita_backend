@@ -8,8 +8,8 @@ class ProductPublicationService
 {
     /**
      * El producto puede publicarse solo con datos comerciales verificables.
-     * Solo se publican productos completos: fotografía, precio,
-     * variante vendible, identidad original y catálogos activos.
+     * Las imágenes son opcionales: la publicación se decide por precio,
+     * stock, datos del modelo y catálogos activos.
      */
     public function isReady(Product $product): bool
     {
@@ -22,7 +22,6 @@ class ProductPublicationService
             || trim((string) $product->color) === ''
             || !$product->brand_id
             || !$product->category_id
-            || (trim((string) $product->img) === '' && empty($product->images))
         ) {
             return false;
         }
@@ -42,7 +41,9 @@ class ProductPublicationService
 
         // Si el producto utiliza stock por variante, al menos una variante
         // debe tener existencias para ser publicable.
-        if (!$product->variantStocks()->where('stock', '>', 0)->exists()) {
+        if ($product->variantStocks()->exists()
+            && !$product->variantStocks()->where('stock', '>', 0)->exists()
+        ) {
             return false;
         }
 
