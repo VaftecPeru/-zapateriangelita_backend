@@ -1031,6 +1031,37 @@ class ProductInventoryImportTest extends TestCase
         $this->getJson('/api/products')->assertOk()->assertJsonCount(0, 'data');
     }
 
+    public function test_master_validation_excludes_no_incluir_rows_before_preview_and_commit(): void
+    {
+        $file = $this->xlsx([
+            $this->headers(),
+            ['CREAR', 'QA-PILOT-01', 'Producto piloto válido', 'MODELO-QA', 'Angelita',
+                'Hombre', 'Botines', '0', '', '', 'Negro', '25', '2',
+                '', '', '', '', 'BORRADOR', '', 'PILOTO: AUTORIZADO'],
+            ['CREAR', 'QA-NO-IMPORTAR', 'Producto pendiente de revisión', 'MODELO-QA', 'Angelita',
+                'Hombre', 'Botines', '0', '', '', 'Negro', '26', '5',
+                '', '', '', '', 'BORRADOR', '', 'PENDIENTE: NO INCLUIR EN IMPORTACIÓN'],
+        ]);
+
+        $this->post('/api/admin/products/import/preview', ['file' => $file], [
+            'Accept' => 'application/json',
+        ])->assertOk()
+            ->assertJsonPath('valid', true)
+            ->assertJsonPath('summary.excluded_rows', 1)
+            ->assertJsonPath('summary.rows', 1)
+            ->assertJsonPath('summary.products', 1)
+            ->assertJsonPath('summary.draft_products', 1);
+
+        $this->post('/api/admin/products/import/commit', ['file' => $file], [
+            'Accept' => 'application/json',
+        ])->assertOk()->assertJsonPath('summary.created', 1);
+
+        $this->assertDatabaseHas('products', [
+            'product_code' => 'QA-PILOT-01', 'is_active' => false, 'stock' => 2,
+        ]);
+        $this->assertDatabaseMissing('products', ['product_code' => 'QA-NO-IMPORTAR']);
+    }
+
     private function headers(): array
     {
         return [

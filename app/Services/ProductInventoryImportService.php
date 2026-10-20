@@ -635,6 +635,20 @@ class ProductInventoryImportService
 
     private function analyzeRows(array $rows, string $format, int $headerRow, array $mappings = []): array
     {
+        // El maestro de inventario del cliente puede incluir registros que la
+        // revisión física marcó expresamente como NO INCLUIR. Excluirlos antes
+        // de heredar atributos/precios evita que contaminen el lote aprobado.
+        $excludedRows = 0;
+        $rows = array_values(array_filter($rows, function (array $source) use (&$excludedRows): bool {
+            $validation = $this->normalizeText((string) ($source['data']['validacion'] ?? ''));
+            if (str_contains($validation, 'no incluir') || str_contains($validation, 'no importar')) {
+                $excludedRows++;
+                return false;
+            }
+
+            return true;
+        }));
+
         $categoryLookup = Category::query()->where('is_active', true)->get(['id', 'name'])->keyBy(
             fn ($item) => $this->categoryAlias($item->name)
         );
@@ -1098,6 +1112,7 @@ class ProductInventoryImportService
             'format' => $format,
             'header_row' => $headerRow,
             'summary' => [
+                'excluded_rows' => $excludedRows,
                 'rows' => count($normalizedRows),
                 'products' => count($groups),
                 'variants' => array_sum(array_map(fn ($group) => count($group['variants']), $groups)),
