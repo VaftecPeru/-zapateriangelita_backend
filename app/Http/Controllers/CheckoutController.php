@@ -169,7 +169,7 @@ class CheckoutController extends Controller
                         }
                     }
 
-                    $price = (float) ($product->discounted_price ?? $product->price ?? 0);
+                    $price = app(\App\Services\ProductColorPricingService::class)->salePrice($product, $item['color'] ?? null);
                     $orderItems[] = [
                         'product_id' => $product->id,
                         'product_name' => $product->name,

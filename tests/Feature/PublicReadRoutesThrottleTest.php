@@ -3,13 +3,12 @@
 namespace Tests\Feature;
 
 use Illuminate\Support\Facades\Route;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class PublicReadRoutesThrottleTest extends TestCase
 {
-    /**
-     * @dataProvider publicReadRoutes
-     */
+    #[DataProvider('publicReadRoutes')]
     public function test_public_read_routes_do_not_use_ip_throttle(string $method, string $uri): void
     {
         $route = collect(Route::getRoutes())
@@ -33,9 +32,7 @@ class PublicReadRoutesThrottleTest extends TestCase
         );
     }
 
-    /**
-     * @dataProvider protectedWriteRoutes
-     */
+    #[DataProvider('protectedWriteRoutes')]
     public function test_sensitive_public_writes_keep_rate_limiting(string $method, string $uri): void
     {
         $route = collect(Route::getRoutes())
