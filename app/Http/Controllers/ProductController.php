@@ -129,7 +129,7 @@ class ProductController extends Controller
             return [];
         }
         $data = json_decode($value, true);
-        if (!is_array($data) || (json_last_error() !== JSON_ERROR_NONE) || array_is_list($data)) {
+        if (!is_array($data) || (json_last_error() !== JSON_ERROR_NONE) || ($data !== [] && array_is_list($data))) {
             throw ValidationException::withMessages(['color_prices' => 'Los precios de colores deben ser un objeto JSON.']);
         }
         $result = [];
