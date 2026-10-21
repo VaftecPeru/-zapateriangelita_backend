@@ -77,7 +77,7 @@ class OrderController extends Controller
 
                 $quantity = (int) $item['quantity'];
                 $stock = (int) ($product->stock ?? 0);
-                $price = $product->discounted_price ?? $product->price ?? 0;
+                $price = app(\App\Services\ProductColorPricingService::class)->salePrice($product, $item['color'] ?? null);
 
                 if ($quantity > $stock) {
                     DB::rollBack();
