@@ -498,7 +498,7 @@ class ProductController extends Controller
         }
 
         return response()->json(
-            $query->orderByDesc('updated_at')->paginate((int) ($validated['per_page'] ?? 20))
+            $query->orderByDesc('updated_at')->orderByDesc('id')->paginate((int) ($validated['per_page'] ?? 20))
         );
     }
 
@@ -559,7 +559,7 @@ class ProductController extends Controller
         }
 
         return response()->json(
-            $query->orderByDesc('updated_at')->paginate((int) ($validated['per_page'] ?? 200))
+            $query->orderByDesc('updated_at')->orderByDesc('id')->paginate((int) ($validated['per_page'] ?? 200))
         );
     }
 
