@@ -64,6 +64,8 @@ class ProductController extends Controller
 
     private function syncVariants(Product $product, array $existingSizeStock = []): void
     {
+        // Conservar precios por color incluso al cambiar tallas/colores desde clientes antiguos.
+        $savedColorPrices = $product->colors()->get()->mapWithKeys(fn ($row) => [mb_strtolower($row->color) => $row->price])->all();
         $product->sizes()->delete();
         $product->colors()->delete();
 
@@ -112,7 +114,47 @@ class ProductController extends Controller
                 'product_id' => $product->id,
                 'color' => $color,
                 'hex' => $hexByColor[$normalized] ?? (str_starts_with($color, '#') ? $color : '#888888'),
+                'price' => $savedColorPrices[$normalized] ?? null,
             ]);
+        }
+    }
+
+    /**
+     * Overrides por color. El objeto JSON omite los colores que heredan
+     * el precio de products.price. No aceptamos valores negativos o no numéricos.
+     */
+    private function normalizeColorPrices(?string $value): array
+    {
+        if ($value === null) {
+            return [];
+        }
+        $data = json_decode($value, true);
+        if (!is_array($data) || (json_last_error() !== JSON_ERROR_NONE) || ($data !== [] && array_is_list($data))) {
+            throw ValidationException::withMessages(['color_prices' => 'Los precios de colores deben ser un objeto JSON.']);
+        }
+        $result = [];
+        foreach ($data as $color => $price) {
+            $color = trim((string) $color);
+            if ($color === '' || mb_strlen($color) > 50
+                || !is_numeric($price) || !is_finite((float) $price)
+                || (float) $price <= 0 || (float) $price > 99999999.99) {
+                throw ValidationException::withMessages(['color_prices' => 'Cada precio personalizado debe ser mayor que 0 y tener un color válido.']);
+            }
+            $key = mb_strtolower($color);
+            if (array_key_exists($key, $result)) {
+                throw ValidationException::withMessages(['color_prices' => 'No repitas colores en los precios personalizados.']);
+            }
+            $result[$key] = round((float) $price, 2);
+        }
+        return $result;
+    }
+
+    private function syncColorPrices(Product $product, array $overrides): void
+    {
+        foreach ($product->colors()->get() as $color) {
+            $key = mb_strtolower($color->color);
+            $color->price = $overrides[$key] ?? null;
+            $color->save();
         }
     }
 
@@ -552,10 +594,12 @@ class ProductController extends Controller
             'status' => 'required|in:normal,oferta,nuevo',
             'color_sizes' => 'nullable|json',
             'variant_stocks' => 'nullable|json',
+            'color_prices' => 'nullable|json',
             'size_stocks' => 'nullable|json',
         ]);
 
         $variantStocks = $this->normalizeVariantStocks($request->input('variant_stocks'));
+        $colorPrices = $this->normalizeColorPrices($request->input('color_prices'));
         $sizeStocks = $this->normalizeSizeStocks($request->input('size_stocks'));
 
         // Alta manual: conservar el total informado, pero sin adjudicarlo a
@@ -626,7 +670,7 @@ class ProductController extends Controller
             }
 
             $requestDraft = $request->has('is_active') && !$request->boolean('is_active');
-            DB::transaction(function () use (&$product, $validated, $variantStocks, $sizeStocks, $requestDraft) {
+            DB::transaction(function () use (&$product, $validated, $variantStocks, $sizeStocks, $requestDraft, $colorPrices) {
                 // Un alta manual sin precio o fotografía comienza en borrador.
                 // El alta admite borrador explícito, aun con precio y stock.
                 // Los clientes históricos sin is_active conservan la publicación automática.
@@ -634,6 +678,7 @@ class ProductController extends Controller
                 $validated['is_active'] = false;
                 $product = Product::create($validated);
                 $this->syncVariants($product);
+                $this->syncColorPrices($product, $colorPrices);
 
                 if ($sizeStocks) {
                     $this->syncSizeStocks($product, $sizeStocks);
@@ -702,6 +747,7 @@ class ProductController extends Controller
             'color_images' => 'sometimes|array',
             'color_sizes' => 'sometimes|json',
             'variant_stocks' => 'sometimes|json',
+            'color_prices' => 'sometimes|json',
             'size_stocks' => 'sometimes|json',
         ]);
 
@@ -710,6 +756,8 @@ class ProductController extends Controller
         }
 
         $validated = $validator->validated();
+        $colorPrices = $request->has('color_prices')
+            ? $this->normalizeColorPrices($request->input('color_prices')) : null;
         if ($request->has('is_active')) {
             // El administrador puede detener la publicación automática.
             $validated['auto_publish'] = $request->boolean('is_active');
@@ -836,7 +884,7 @@ class ProductController extends Controller
                 ->values()
                 ->all();
 
-            DB::transaction(function () use ($product, $validated, $existingSizeStock, $originalSizes, $originalColors, $variantStocks, $sizeStocks, $resetVariantStocks) {
+            DB::transaction(function () use ($product, $validated, $existingSizeStock, $originalSizes, $originalColors, $variantStocks, $sizeStocks, $resetVariantStocks, $colorPrices) {
                 $product->update($validated);
                 $freshProduct = $product->fresh();
 
@@ -861,6 +909,9 @@ class ProductController extends Controller
                 // cambió realmente la estructura de tallas/colores.
                 if ($originalSizes !== $updatedSizes || $originalColors !== $updatedColors) {
                     $this->syncVariants($freshProduct, $existingSizeStock);
+                }
+                if (is_array($colorPrices)) {
+                    $this->syncColorPrices($freshProduct, $colorPrices);
                 }
 
                 if (is_array($sizeStocks) && !empty($sizeStocks)) {

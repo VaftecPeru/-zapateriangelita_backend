@@ -15,7 +15,10 @@ class ProductColor extends Model
         'product_id',
         'color',
         'hex',
+        'price',
     ];
+
+    protected $casts = ['price' => 'decimal:2'];
 
     public function product()
     {
