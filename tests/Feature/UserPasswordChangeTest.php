@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Mail\PasswordChangedMail;
 use App\Models\PasswordResetAudit;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -63,6 +64,7 @@ class UserPasswordChangeTest extends TestCase
             'admin_id' => null,
             'action' => 'user_changed_password',
         ]);
+        Mail::assertSent(PasswordChangedMail::class);
     }
 
     public function test_temporary_password_flow_cannot_be_bypassed_by_regular_endpoint(): void
@@ -86,5 +88,29 @@ class UserPasswordChangeTest extends TestCase
             ->assertJsonPath('error_code', 'TEMPORARY_PASSWORD_CHANGE_REQUIRED');
 
         $this->assertTrue($user->fresh()->must_change_password);
+    }
+
+    public function test_temporary_password_change_sends_notification_after_success(): void
+    {
+        Mail::fake();
+
+        $user = User::factory()->create([
+            'password' => Hash::make('Temporal123!'),
+            'must_change_password' => true,
+            'temporary_password_set_at' => now(),
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/user/change-temporary-password', [
+            'password' => 'NuevaClave123!',
+            'password_confirmation' => 'NuevaClave123!',
+        ])
+            ->assertOk()
+            ->assertJsonPath('success', true);
+
+        $this->assertFalse($user->fresh()->must_change_password);
+        $this->assertTrue(Hash::check('NuevaClave123!', $user->fresh()->password));
+        Mail::assertSent(PasswordChangedMail::class);
     }
 }
