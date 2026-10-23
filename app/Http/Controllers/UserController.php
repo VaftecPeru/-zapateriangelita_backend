@@ -142,15 +142,7 @@ class UserController extends Controller
             'ip_address' => $request->ip(),
         ]);
 
-        try {
-            Mail::to($user->email)->send(new PasswordChangedMail($user, 'temporary_password_changed'));
-        } catch (\Throwable $e) {
-            Log::warning('PASSWORD_CHANGED_EMAIL_FAILED', [
-                'user_id' => $user->id,
-                'exception' => get_class($e),
-                'message' => $e->getMessage(),
-            ]);
-        }
+        $this->sendPasswordChangedNotificationAfterResponse($user, 'temporary_password_changed');
 
         return response()->json([
             'success' => true,
@@ -214,21 +206,38 @@ class UserController extends Controller
             'ip_address' => $request->ip(),
         ]);
 
-        try {
-            Mail::to($user->email)->send(new PasswordChangedMail($user, 'password_changed'));
-        } catch (\Throwable $e) {
-            Log::warning('PASSWORD_CHANGED_EMAIL_FAILED', [
-                'user_id' => $user->id,
-                'exception' => get_class($e),
-                'message' => $e->getMessage(),
-            ]);
-        }
+        $this->sendPasswordChangedNotificationAfterResponse($user, 'password_changed');
 
         return response()->json([
             'success' => true,
             'message' => 'Contraseña actualizada correctamente.',
             'user' => $user->fresh(),
         ]);
+    }
+
+    /**
+     * Send the notification after the HTTP response so SMTP latency does not block password changes.
+     */
+    private function sendPasswordChangedNotificationAfterResponse(User $user, string $event): void
+    {
+        $userId = (int) $user->getKey();
+        $email = (string) $user->email;
+
+        app()->terminating(function () use ($user, $userId, $email, $event): void {
+            if ($email === '') {
+                return;
+            }
+
+            try {
+                Mail::to($email)->send(new PasswordChangedMail($user, $event));
+            } catch (\Throwable $e) {
+                Log::warning('PASSWORD_CHANGED_EMAIL_FAILED', [
+                    'user_id' => $userId,
+                    'exception' => get_class($e),
+                    'message' => $e->getMessage(),
+                ]);
+            }
+        });
     }
 
     public function updateRole(Request $request, string $id): JsonResponse
