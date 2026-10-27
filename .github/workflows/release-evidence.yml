@@ -1,0 +1,55 @@
+name: Angelita release evidence - GitHub only
+
+on:
+  pull_request:
+    branches: [develop, main]
+  workflow_dispatch:
+    inputs:
+      frontend_main_sha:
+        description: "SHA exacto frontend main (40 caracteres)"
+        type: string
+        required: true
+        default: "b2ed5e1180408f2f405eb0636b052864752d14af"
+      backend_main_sha:
+        description: "SHA exacto backend main (40 caracteres)"
+        type: string
+        required: true
+        default: "443f5f8681c569bfa7a937f5181147a38d94e99b"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: angelita-release-evidence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  github-evidence:
+    name: Verify immutable release candidates (no deploy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      EXPECTED_FRONTEND_SHA: ${{ inputs.frontend_main_sha || 'b2ed5e1180408f2f405eb0636b052864752d14af' }}
+      EXPECTED_BACKEND_SHA: ${{ inputs.backend_main_sha || '443f5f8681c569bfa7a937f5181147a38d94e99b' }}
+    steps:
+      - name: Checkout audited source
+        uses: actions/checkout@v4
+
+      - name: Unit tests (offline / no server)
+        run: |
+          python3 -m py_compile scripts/release_evidence.py
+          python3 -m unittest discover -s tests/ci -p 'test_release_evidence.py' -v
+
+      - name: Validate main SHAs, GitHub Actions and artifact metadata
+        run: python3 scripts/release_evidence.py
+
+      - name: Publish audit evidence (no secrets)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: angelita-release-evidence-${{ github.run_id }}
+          path: release-evidence.json
+          if-no-files-found: warn
+          retention-days: 14
