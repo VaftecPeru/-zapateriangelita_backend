@@ -1,0 +1,57 @@
+name: Angelita SSH readiness - read only
+
+on:
+  pull_request:
+    branches: [develop, main]
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Escriba READ_ONLY_PROBE. Nunca se despliega desde este workflow."
+        required: true
+        type: choice
+        options:
+          - "NOT_AUTHORIZED"
+          - "READ_ONLY_PROBE"
+        default: "NOT_AUTHORIZED"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: angelita-readonly-ssh-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-security-validation:
+    name: Verify probe code without contacting hosting
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Python syntax and test guardrails
+        run: |
+          python3 -m py_compile scripts/ssh_readonly_probe.py
+          python3 -m unittest discover -s tests/ci -p test_ssh_readonly_probe.py -v
+
+  probe-ssh:
+    name: Read-only SSH transport probe (no deploy)
+    needs: static-security-validation
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'VaftecPeru/-zapateriangelita_backend' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.confirm == 'READ_ONLY_PROBE'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    environment:
+      name: angelita-production-readonly
+    env:
+      ANGELITA_READONLY_SSH_HOST: ${{ secrets.ANGELITA_READONLY_SSH_HOST }}
+      ANGELITA_READONLY_SSH_USER: ${{ secrets.ANGELITA_READONLY_SSH_USER }}
+      ANGELITA_READONLY_SSH_PRIVATE_KEY: ${{ secrets.ANGELITA_READONLY_SSH_PRIVATE_KEY }}
+      ANGELITA_READONLY_SSH_KNOWN_HOSTS: ${{ secrets.ANGELITA_READONLY_SSH_KNOWN_HOSTS }}
+      ANGELITA_READONLY_SSH_PORT: ${{ vars.ANGELITA_READONLY_SSH_PORT || '22' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify host identity and required CLI tools (no writes)
+        run: python3 scripts/ssh_readonly_probe.py
