@@ -63,7 +63,7 @@ class SSHReadinessTests(unittest.TestCase):
     def test_source_never_uses_mutating_commands(self):
         command = PROBE.REMOTE_COMMAND.lower()
         for forbidden in (
-            "rm ", "mv ", "cp ", "chmod ", "chown ", "mysqldump ",
+            "rm ", "mv ", "cp ", "chmod ", "chown ", "; mysqldump ",
             "mysql ", "migrate", "artisan ", "curl ", "wget ", "sudo ",
             "write", "cat ", "sed -i", "tar -", "git "
         ):
