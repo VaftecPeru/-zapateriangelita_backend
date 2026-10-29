@@ -13,6 +13,15 @@ class PasswordResetInfrastructureTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_smtp_connection_has_a_bounded_timeout(): void
+    {
+        $timeout = config('mail.mailers.smtp.timeout');
+
+        $this->assertIsInt($timeout);
+        $this->assertGreaterThan(0, $timeout);
+        $this->assertLessThanOrEqual(15, $timeout);
+    }
+
     public function test_password_broker_token_table_is_available_after_migrations(): void
     {
         $this->assertSame('password_reset_tokens', config('auth.passwords.users.table'));
