@@ -40,6 +40,7 @@ class OpenpayWebhookReconciliationTest extends TestCase
             $table->id();
             $table->string('name');
             $table->integer('stock')->default(0);
+            $table->softDeletes();
             $table->timestamps();
         });
 
