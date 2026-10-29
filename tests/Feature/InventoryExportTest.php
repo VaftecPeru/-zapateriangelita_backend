@@ -73,6 +73,7 @@ class InventoryExportTest extends TestCase
             $table->string('color')->nullable();
             $table->string('material')->nullable();
             $table->string('status')->default('normal');
+            $table->softDeletes();
             $table->timestamps();
         });
 
