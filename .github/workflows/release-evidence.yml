@@ -14,7 +14,7 @@ on:
         description: "SHA exacto backend main (40 caracteres)"
         type: string
         required: true
-        default: "c3766e9f6fc8ff8ad155b3ee2bc0b74ae7dbbb15"
+        default: "7ad95327d38feb8c4f81fa1ff4fc695f5c694870"
 
 permissions:
   contents: read
@@ -32,7 +32,7 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ github.token }}
       EXPECTED_FRONTEND_SHA: ${{ inputs.frontend_main_sha || 'b2ed5e1180408f2f405eb0636b052864752d14af' }}
-      EXPECTED_BACKEND_SHA: ${{ inputs.backend_main_sha || 'c3766e9f6fc8ff8ad155b3ee2bc0b74ae7dbbb15' }}
+      EXPECTED_BACKEND_SHA: ${{ inputs.backend_main_sha || '7ad95327d38feb8c4f81fa1ff4fc695f5c694870' }}
     steps:
       - name: Checkout audited source
         uses: actions/checkout@v4
