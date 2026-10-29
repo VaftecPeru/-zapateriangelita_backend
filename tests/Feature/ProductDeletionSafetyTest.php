@@ -8,7 +8,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Foundation\Testing\DatabaseMigrations;
+use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
@@ -17,13 +17,16 @@ use Tests\TestCase;
 
 class ProductDeletionSafetyTest extends TestCase
 {
-    use DatabaseMigrations;
-
     private string $mediaRoot;
 
     protected function setUp(): void
     {
         parent::setUp();
+        // Se necesitan commits reales para verificar el filesystem tras afterCommit.
+        // Recrear la BD aislada evita ejecutar down() históricos durante teardown.
+        $this->assertTrue(app()->environment('testing'));
+        $this->artisan('migrate:fresh', ['--force' => true])->assertExitCode(0);
+        RefreshDatabaseState::$migrated = false;
         Sanctum::actingAs(User::factory()->create(['role' => 'admin']));
         $this->mediaRoot = sys_get_temp_dir() . '/angelita-delete-' . bin2hex(random_bytes(8));
         File::makeDirectory($this->mediaRoot . '/uploads/products', 0755, true);
