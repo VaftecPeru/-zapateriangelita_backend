@@ -307,6 +307,52 @@ class TransactionalEmailNotificationTest extends TestCase
         $this->assertNotNull($order->fresh()->purchase_email_sent_at);
     }
 
+    public function test_purchase_voucher_has_private_admin_copy_and_is_not_resent(): void
+    {
+        Mail::fake();
+        config(['mail.purchase_admin_address' => ' ADMIN@example.com ']);
+        $order = $this->paidOrder();
+        $service = app(PurchaseNotificationService::class);
+        $this->assertTrue($service->send($order));
+        $this->assertTrue($service->send($order->fresh()));
+        Mail::assertSent(PurchaseConfirmedMail::class, fn ($mail) =>
+            $mail->hasTo('comprador@example.com') && $mail->hasBcc('admin@example.com')
+        );
+        Mail::assertSent(PurchaseConfirmedMail::class, 1);
+    }
+
+    public function test_invalid_admin_address_leaves_voucher_pending(): void
+    {
+        Mail::fake();
+        config(['mail.purchase_admin_address' => 'invalid']);
+        $order = $this->paidOrder();
+        $this->assertFalse(app(PurchaseNotificationService::class)->send($order));
+        $this->assertNull($order->fresh()->purchase_email_sent_at);
+        Mail::assertNothingSent();
+    }
+
+    public function test_admin_equal_to_customer_is_not_added_twice(): void
+    {
+        Mail::fake();
+        config(['mail.purchase_admin_address' => 'comprador@example.com']);
+        $order = $this->paidOrder();
+        $this->assertTrue(app(PurchaseNotificationService::class)->send($order));
+        Mail::assertSent(PurchaseConfirmedMail::class, fn ($mail) =>
+            $mail->hasTo('comprador@example.com') && count($mail->bcc) === 0
+        );
+    }
+
+    public function test_smtp_failure_releases_voucher_for_retry_without_changing_payment(): void
+    {
+        $order = $this->paidOrder();
+        $pending = \Mockery::mock(\Illuminate\Mail\PendingMail::class);
+        Mail::shouldReceive('to')->once()->andReturn($pending);
+        $pending->shouldReceive('send')->once()->andThrow(new \RuntimeException('SMTP unavailable'));
+        $this->assertFalse(app(PurchaseNotificationService::class)->send($order));
+        $this->assertNull($order->fresh()->purchase_email_sent_at);
+        $this->assertSame('paid', $order->fresh()->payment_status);
+    }
+
     public function test_admin_password_reset_always_notifies_customer(): void
     {
         Mail::fake();

@@ -32,6 +32,12 @@ class PurchaseNotificationService
             return true;
         }
 
+        $adminRecipient = strtolower(trim((string) config('mail.purchase_admin_address', '')));
+        if ($adminRecipient !== '' && !filter_var($adminRecipient, FILTER_VALIDATE_EMAIL)) {
+            Log::error('PURCHASE_EMAIL_INVALID_ADMIN_CONFIGURATION', ['order_id' => $order->id]);
+            return false;
+        }
+
         $claimed = true;
         if (Schema::hasColumn('orders', 'purchase_email_sent_at')) {
             $claimed = Order::whereKey($order->id)
@@ -44,9 +50,11 @@ class PurchaseNotificationService
         }
 
         try {
-            Mail::to($recipient)->send(
-                new PurchaseConfirmedMail($order->fresh('items'), $user)
-            );
+            $mail = Mail::to($recipient);
+            if ($adminRecipient !== '' && $adminRecipient !== $recipient) {
+                $mail->bcc($adminRecipient);
+            }
+            $mail->send(new PurchaseConfirmedMail($order->fresh('items'), $user));
 
             Log::info('PURCHASE_EMAIL_SENT', [
                 'order_id' => $order->id,
