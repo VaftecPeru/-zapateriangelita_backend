@@ -76,6 +76,45 @@ def json_check(name, url, require_health=False):
     record(name, ok, detail)
 
 
+
+def catalog_check():
+    """Check one currently public item instead of depending on a stale fixed ID."""
+    url = f"{API}/api/products?per_page=1"
+    status, headers, payload, error = request("GET", url)
+    content_type = headers.get("Content-Type", "")
+    if status != 200 or "application/json" not in content_type.lower():
+        record("Catalogo publico y detalle", False,
+               f"Listado HTTP {status}, content-type={content_type}, error={error}")
+        return
+    try:
+        listing = json.loads(payload)
+        items = listing.get("data") if isinstance(listing, dict) else None
+        if not isinstance(items, list):
+            raise ValueError("Catalogo sin lista data")
+        if not items:
+            record("Catalogo publico y detalle", False,
+                   "Listado HTTP 200, pero no hay productos publicos; revisar publicacion e inventario.")
+            return
+        product_id = items[0].get("id")
+        if not isinstance(product_id, int) or isinstance(product_id, bool) or product_id <= 0:
+            raise ValueError("Producto sin identificador valido")
+    except (ValueError, TypeError, UnicodeDecodeError) as exc:
+        record("Catalogo publico y detalle", False, f"Respuesta del listado no valida: {exc}")
+        return
+    detail_status, detail_headers, detail_body, detail_error = request(
+        "GET", f"{API}/api/products/{product_id}"
+    )
+    try:
+        detail_json = json.loads(detail_body) if "application/json" in detail_headers.get("Content-Type", "").lower() else None
+    except (ValueError, UnicodeDecodeError):
+        detail_json = None
+    returned_id = detail_json.get("id") if isinstance(detail_json, dict) else None
+    ok = detail_status == 200 and str(returned_id) == str(product_id)
+    record("Catalogo publico y detalle", ok,
+           f"Listado HTTP 200; producto publicado #{product_id}: detalle HTTP {detail_status}, "
+           f"ID coincide={str(returned_id) == str(product_id)}, error={detail_error}")
+
+
 def cors_check():
     status, headers, payload, error = request(
         "OPTIONS",
@@ -116,7 +155,7 @@ def html_check(name, url):
 def main():
     json_check("Laravel /api/health y conexion MySQL", f"{API}/api/health", True)
     cors_check()
-    json_check("Lectura publica de producto #976", f"{API}/api/products/976")
+    catalog_check()
     html_check("Tienda principal", STORE)
     html_check("Checkout navegable sin realizar cobro", f"{STORE}/checkout")
 
