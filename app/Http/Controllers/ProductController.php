@@ -991,13 +991,18 @@ class ProductController extends Controller
 
     public function destroy(Product $product): JsonResponse
     {
-        $images = is_array($product->images) ? $product->images : [];
-        if ($product->img) {
-            $images[] = $product->img;
-        }
-        $images = array_merge($images, $this->flattenImageValues($product->color_images));
-        $this->deleteUploadImages($images);
-        $product->delete();
+        // Baja lógica: preserva pedidos, referencias de inventario y fotografías.
+        // Los productos dados de baja dejan de aparecer en catálogos y búsquedas
+        // habituales gracias al scope de SoftDeletes en el modelo Product.
+        // La operación no ejecuta unlink ni modifica relaciones de pedidos.
+        DB::transaction(function () use ($product): void {
+            $product->forceFill([
+                'is_active' => false,
+                'auto_publish' => false,
+            ])->save();
+            $product->delete();
+        });
+
         return response()->json(null, 204);
     }
 }

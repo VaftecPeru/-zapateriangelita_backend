@@ -34,7 +34,7 @@ class CheckoutStockService
 
             foreach ($items as $item) {
                 $quantity = (int) $item->quantity;
-                $product = Product::whereKey($item->product_id)->lockForUpdate()->first();
+                $product = Product::withTrashed()->whereKey($item->product_id)->lockForUpdate()->first();
 
                 if ($product) {
                     $product->increment('stock', $quantity);

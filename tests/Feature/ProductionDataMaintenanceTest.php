@@ -59,6 +59,7 @@ class ProductionDataMaintenanceTest extends TestCase
             $table->text('color_images')->nullable();
             $table->integer('stock')->nullable();
             $table->string('status')->default('normal');
+            $table->softDeletes();
             $table->timestamps();
         });
 

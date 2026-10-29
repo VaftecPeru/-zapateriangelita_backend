@@ -54,6 +54,7 @@ class CheckoutDeliveryCostTest extends TestCase
             $table->decimal('discounted_price', 10, 2)->nullable();
             $table->integer('stock')->default(0);
             $table->text('color_sizes')->nullable();
+            $table->softDeletes();
             $table->timestamps();
         });
 
