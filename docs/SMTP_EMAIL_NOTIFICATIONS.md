@@ -40,3 +40,26 @@ El logotipo de los correos se obtiene desde:
 `FRONTEND_URL/logo-angelita-horizontal.png`
 
 El frontend publica ese archivo con una ruta estable para evitar depender de nombres hash generados por Vite.
+
+## Mantenimiento 29/10/2026
+
+- `MAIL_TIMEOUT=15` limita la espera del transporte SMTP (segundos). No corrige
+  un bloqueo de salida del hosting; verificar conexión y registros del proveedor.
+- `MAIL_PURCHASE_ADMIN_ADDRESS` configura **una** dirección administrativa verificada.
+  El voucher se envía al comprador con copia oculta a esa dirección. No se expone
+  al cliente y no se duplican destinatarios si coincide con el comprador.
+- Si la dirección configurada es inválida, el envío queda pendiente y se registra
+  `PURCHASE_EMAIL_INVALID_ADMIN_CONFIGURATION`. Una variable vacía conserva el envío
+  únicamente al comprador. Confirmar esta variable antes de la UAT de ambos buzones.
+- Se mantiene una sola marca de envío por mensaje, no por destinatario. SMTP no
+  garantiza entrega exactamente una vez: ante aceptación parcial o caída entre
+  envío y persistencia, revisar logs del proveedor antes de un reintento manual.
+  No se reenvían automáticamente vouchers ya marcados como enviados para añadir la copia.
+
+Antes de aplicar cambios: backup verificable de BD, aplicación, uploads y configuración;
+restauración aislada y registro de la versión desplegada. No ejecutar `migrate:fresh`
+en producción. Revisar `migrate:status`: la migración del 27/10 que crea
+`password_reset_tokens` ya existe en el repositorio; aplicar solo pendientes revisadas
+tras el backup. Verificar cron desde el directorio correcto y conectividad SMTP sin
+exponer credenciales. La prueba final exige recibir el voucher en ambos buzones y
+completar el restablecimiento con token de un solo uso. CI con Mail::fake no prueba SMTP.

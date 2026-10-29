@@ -67,3 +67,5 @@ jobs:
         run: vendor/bin/phpunit --testdox tests/Feature/ProductManualInventorySafetyTest.php tests/Feature/UnallocatedInventoryMovementTest.php
       - name: Test checkout + payment integration regressions
         run: vendor/bin/phpunit --testdox tests/Feature/OpenpayWebhookReconciliationTest.php
+      - name: Test safe product deletion on MariaDB
+        run: vendor/bin/phpunit --testdox tests/Feature/ProductDeletionSafetyTest.php

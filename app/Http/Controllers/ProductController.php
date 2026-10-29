@@ -12,6 +12,9 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\QueryException;
 
 class ProductController extends Controller
 {
@@ -991,13 +994,55 @@ class ProductController extends Controller
 
     public function destroy(Product $product): JsonResponse
     {
-        $images = is_array($product->images) ? $product->images : [];
-        if ($product->img) {
-            $images[] = $product->img;
+        try {
+            return DB::transaction(function () use ($product): JsonResponse {
+                $product = Product::query()->lockForUpdate()->findOrFail($product->id);
+
+                // Nunca eliminar el historial comercial o los movimientos por cascada.
+                foreach (['order_items', 'inventory_movements'] as $table) {
+                    if (Schema::hasTable($table) && DB::table($table)->where('product_id', $product->id)->exists()) {
+                        return $this->productDeletionConflict();
+                    }
+                }
+
+                $images = $this->flattenImageValues($product->images);
+                if ($product->img) {
+                    $images[] = $product->img;
+                }
+                $images = array_merge($images, $this->flattenImageValues($product->color_images));
+                $productId = $product->id;
+                $product->delete();
+
+                // El filesystem no participa del rollback: limpiar solo tras confirmar la BD.
+                DB::afterCommit(function () use ($images, $productId): void {
+                    try {
+                        $this->deleteUploadImages($images);
+                    } catch (\Throwable $e) {
+                        Log::warning('PRODUCT_IMAGE_CLEANUP_FAILED', [
+                            'product_id' => $productId,
+                            'exception' => get_class($e),
+                        ]);
+                    }
+                });
+
+                return response()->json(null, 204);
+            });
+        } catch (QueryException $e) {
+            // Incluye relaciones históricas que no aparecen en el esquema actual.
+            $state = (string) ($e->errorInfo[0] ?? '');
+            $driverCode = (int) ($e->errorInfo[1] ?? 0);
+            if ($state === '23503' || ($state === '23000' && in_array($driverCode, [1451, 19], true))) {
+                return $this->productDeletionConflict();
+            }
+            throw $e;
         }
-        $images = array_merge($images, $this->flattenImageValues($product->color_images));
-        $this->deleteUploadImages($images);
-        $product->delete();
-        return response()->json(null, 204);
+    }
+
+    private function productDeletionConflict(): JsonResponse
+    {
+        return response()->json([
+            'message' => 'Este producto tiene registros relacionados y no se puede eliminar. Desactívalo para conservar el historial.',
+            'error_code' => 'PRODUCT_HAS_RELATED_RECORDS',
+        ], 409);
     }
 }

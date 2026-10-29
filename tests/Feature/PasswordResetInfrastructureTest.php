@@ -42,4 +42,18 @@ class PasswordResetInfrastructureTest extends TestCase
 
         Mail::assertSent(PasswordResetLinkMail::class);
     }
+    public function test_reset_token_can_only_be_used_once(): void
+    {
+        Mail::fake();
+        $user = User::factory()->create();
+        $this->postJson('/api/forgot-password', ['email' => $user->email])->assertOk();
+        $mail = Mail::sent(PasswordResetLinkMail::class)->first();
+        $payload = [
+            'email' => $user->email, 'token' => $mail->token,
+            'password' => 'ChangedSecret123!', 'password_confirmation' => 'ChangedSecret123!',
+        ];
+        $this->postJson('/api/reset-password', $payload)->assertOk();
+        $this->assertTrue(\Illuminate\Support\Facades\Hash::check($payload['password'], $user->fresh()->password));
+        $this->postJson('/api/reset-password', $payload)->assertStatus(400);
+    }
 }

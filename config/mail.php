@@ -5,6 +5,9 @@ return [
 
     'default' => env('MAIL_MAILER', 'smtp'),
 
+    // Copia privada del voucher; vacío mantiene el comportamiento anterior.
+    'purchase_admin_address' => env('MAIL_PURCHASE_ADMIN_ADDRESS'),
+
     'mailers' => [
         'smtp' => [
             'transport' => 'smtp',
@@ -14,7 +17,7 @@ return [
             'encryption' => env('MAIL_ENCRYPTION', 'tls'),
             'username' => env('MAIL_USERNAME'),
             'password' => env('MAIL_PASSWORD'),
-            'timeout' => null,
+            'timeout' => (int) env('MAIL_TIMEOUT', 15),
             'local_domain' => env('MAIL_EHLO_DOMAIN'),
         ],
 
