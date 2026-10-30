@@ -288,4 +288,28 @@ class CpanelCheckoutRecoveryTest extends TestCase
         Mail::assertNothingSent();
     }
 
+    public function test_voucher_html_contains_order_payment_reference_amount_and_escaped_customer(): void
+    {
+        $user = $this->user('voucher-content@example.com');
+        $order = $this->order(
+            $user,
+            'ZA-VOUCHER-TEST-001',
+            'paid',
+            'REF-VOUCHER-001',
+            'tr_voucher_001'
+        );
+        $order->update(['customer_name' => '<script>alert(1)</script>']);
+
+        $mail = new PurchaseConfirmedMail($order->fresh('items'), $user);
+        $renderVoucher = new \ReflectionMethod(PurchaseConfirmedMail::class, 'voucherHtml');
+        $html = $renderVoucher->invoke($mail, $order->fresh('items'));
+
+        $this->assertStringContainsString('ZA-VOUCHER-TEST-001', $html);
+        $this->assertStringContainsString('REF-VOUCHER-001', $html);
+        $this->assertStringContainsString('tr_voucher_001', $html);
+        $this->assertStringContainsString('475.00', $html);
+        $this->assertStringContainsString('&lt;script&gt;', $html);
+        $this->assertStringNotContainsString('<script>', $html);
+    }
+
 }
