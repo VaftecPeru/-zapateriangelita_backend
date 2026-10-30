@@ -97,4 +97,26 @@ class PasswordResetInfrastructureTest extends TestCase
         Mail::assertNothingSent();
     }
 
+    public function test_password_reset_records_a_safe_mail_delivery_audit(): void
+    {
+        Mail::fake();
+        \Illuminate\Support\Facades\Log::spy();
+
+        $user = User::factory()->create();
+        $this->postJson('/api/forgot-password', ['email' => $user->email])->assertOk();
+
+        \Illuminate\Support\Facades\Log::shouldHaveReceived('info')
+            ->with('PASSWORD_RESET_EMAIL_ATTEMPT', \Mockery::on(
+                fn ($context) => $context['user_id'] === $user->id
+                    && isset($context['transport'])
+                    && !isset($context['token'])
+            ))->once();
+
+        \Illuminate\Support\Facades\Log::shouldHaveReceived('info')
+            ->with('PASSWORD_RESET_EMAIL_ACCEPTED', \Mockery::on(
+                fn ($context) => $context['user_id'] === $user->id
+                    && isset($context['elapsed_ms'])
+            ))->once();
+    }
+
 }
