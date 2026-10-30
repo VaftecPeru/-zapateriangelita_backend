@@ -65,8 +65,9 @@ class PasswordResetInfrastructureTest extends TestCase
             return $mail->hasTo($user->email);
         });
 
-        $mail = Mail::assertSent(PasswordResetLinkMail::class);
-        $token = $mail->first()->token;
+        $mail = Mail::sent(PasswordResetLinkMail::class)->first();
+        $this->assertNotNull($mail);
+        $token = $mail->token;
 
         $this->postJson('/api/reset-password', [
             'email' => $user->email,
