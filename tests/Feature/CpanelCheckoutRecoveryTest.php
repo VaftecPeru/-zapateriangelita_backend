@@ -138,6 +138,11 @@ class CpanelCheckoutRecoveryTest extends TestCase
         $this->assertTrue($service->processById((int) $order->id));
 
         Mail::assertSent(PurchaseConfirmedMail::class, 1);
+        Mail::assertSent(PurchaseConfirmedMail::class, function (PurchaseConfirmedMail $mail): bool {
+            $attachments = $mail->attachments();
+
+            return count($attachments) === 1;
+        });
         Mail::assertSent(TemporaryPasswordMail::class, 1);
 
         $order->refresh();
@@ -220,4 +225,91 @@ class CpanelCheckoutRecoveryTest extends TestCase
         $this->assertSame('paid', $result);
         $this->assertSame('paid', $order->fresh()->payment_status);
     }
+    public function test_pending_test_order_cannot_be_reconciled_or_notified(): void
+    {
+        Mail::fake();
+        Http::fake();
+
+        $user = $this->user('pending-sandbox@example.com');
+        $order = $this->order(
+            $user,
+            'ZA-20261021-D7E6',
+            'pending',
+            'ZA-20261021-D7E6-REF',
+            ''
+        );
+
+        $result = app(CpanelOpenpayReconciliationService::class)->reconcile($order);
+        $notified = app(CpanelOrderNotificationService::class)->processById((int) $order->id);
+
+        $this->assertSame('skipped', $result);
+        $this->assertFalse($notified);
+        $this->assertSame('pending', $order->fresh()->payment_status);
+        $this->assertNull($order->fresh()->paid_at);
+        Mail::assertNothingSent();
+        Http::assertNothingSent();
+    }
+
+    public function test_openpay_mismatch_does_not_mark_order_paid_or_send_email(): void
+    {
+        Mail::fake();
+        config([
+            'openpay.merchant_id' => 'merchant_test',
+            'openpay.private_key' => 'private_test',
+            'openpay.base_url' => 'https://sandbox-api.openpay.mx',
+            'openpay.currency' => 'MXN',
+            'services.payment_service.enabled' => false,
+        ]);
+
+        $user = $this->user('mismatch-sandbox@example.com');
+        $order = $this->order(
+            $user,
+            'ZA-MISMATCH-001',
+            'processing',
+            'ZA-MISMATCH-001-REF',
+            'tr_mismatch_001'
+        );
+
+        Http::fake([
+            'https://sandbox-api.openpay.mx/v1/merchant_test/charges/tr_mismatch_001' => Http::response([
+                'id' => 'tr_mismatch_001',
+                'order_id' => 'ZA-OTHER-ORDER',
+                'amount' => 475.00,
+                'currency' => 'MXN',
+                'status' => 'completed',
+            ], 200),
+        ]);
+
+        $result = app(CpanelOpenpayReconciliationService::class)->reconcile($order);
+
+        $this->assertSame('mismatch', $result);
+        $this->assertSame('processing', $order->fresh()->payment_status);
+        $this->assertNull($order->fresh()->paid_at);
+        Mail::assertNothingSent();
+    }
+
+    public function test_voucher_html_contains_order_payment_reference_amount_and_escaped_customer(): void
+    {
+        $user = $this->user('voucher-content@example.com');
+        $order = $this->order(
+            $user,
+            'ZA-VOUCHER-TEST-001',
+            'paid',
+            'REF-VOUCHER-001',
+            'tr_voucher_001'
+        );
+        $order->update(['customer_name' => '<script>alert(1)</script>']);
+
+        $mail = new PurchaseConfirmedMail($order->fresh('items'), $user);
+        $renderVoucher = new \ReflectionMethod(PurchaseConfirmedMail::class, 'voucherHtml');
+        $html = $renderVoucher->invoke($mail, $order->fresh('items'));
+
+        $this->assertStringContainsString('ZA-VOUCHER-TEST-001', $html);
+        $this->assertStringContainsString('REF-VOUCHER-001', $html);
+        $this->assertStringContainsString('tr_voucher_001', $html);
+        $this->assertStringContainsString('475.00', $html);
+        $this->assertStringContainsString('&lt;script&gt;', $html);
+        $this->assertStringNotContainsString('<script>', $html);
+    }
+
 }
