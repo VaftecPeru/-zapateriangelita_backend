@@ -56,7 +56,7 @@ class PasswordResetInfrastructureTest extends TestCase
         Mail::fake();
 
         $user = User::factory()->create([
-            'password' => \Illuminate\\Support\\Facades\\Hash::make('OriginalPassword123'),
+            'password' => \Illuminate\Support\Facades\Hash::make('OriginalPassword123'),
         ]);
 
         $this->postJson('/api/forgot-password', ['email' => $user->email])->assertOk();
@@ -75,7 +75,7 @@ class PasswordResetInfrastructureTest extends TestCase
         ])->assertOk();
 
         $this->assertTrue(
-            \Illuminate\\Support\\Facades\\Hash::check('NuevaClaveSegura123', $user->fresh()->password)
+            \Illuminate\Support\Facades\Hash::check('NuevaClaveSegura123', $user->fresh()->password)
         );
         $this->assertDatabaseMissing('password_reset_tokens', ['email' => $user->email]);
     }
