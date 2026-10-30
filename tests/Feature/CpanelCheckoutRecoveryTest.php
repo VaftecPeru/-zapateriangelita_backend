@@ -138,6 +138,11 @@ class CpanelCheckoutRecoveryTest extends TestCase
         $this->assertTrue($service->processById((int) $order->id));
 
         Mail::assertSent(PurchaseConfirmedMail::class, 1);
+        Mail::assertSent(PurchaseConfirmedMail::class, function (PurchaseConfirmedMail $mail): bool {
+            $attachments = $mail->attachments();
+
+            return count($attachments) === 1;
+        });
         Mail::assertSent(TemporaryPasswordMail::class, 1);
 
         $order->refresh();
