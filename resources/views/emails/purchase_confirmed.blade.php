@@ -20,7 +20,7 @@
 @endphp
 <div style="max-width:680px;margin:0 auto;padding:28px 14px;">
   <div style="background:#fff;border-radius:18px;overflow:hidden;border:1px solid #eee;">
-    <div style="padding:24px;text-align:center;border-bottom:3px solid #e30613;">
+    <div style="padding:24px;text-align:center;background:#ffffff;border-bottom:3px solid #e30613;">
       <img src="{{ $logo }}" alt="Zapatería Angelita" style="max-width:210px;width:70%;height:auto;">
     </div>
     <div style="padding:30px;">
@@ -80,7 +80,7 @@
       </div>
 
       <div style="text-align:center;margin-top:26px;">
-        <a href="{{ $frontend }}/profile/purchases" style="display:inline-block;background:#e30613;color:#fff;text-decoration:none;padding:13px 22px;border-radius:9px;font-weight:800;">Ver mi compra</a>
+        <a href="{{ $frontend }}/profile/purchases" style="display:inline-block;background:#e30613;color:#ffffff!important;text-decoration:none;padding:13px 22px;border-radius:9px;font-weight:800;">Ver mi compra</a>
       </div>
 
       <p style="margin:24px 0 0;font-size:11px;line-height:1.6;color:#888;">Este correo y el voucher son comprobantes comerciales emitidos por Zapatería Angelita. Tu banco o emisor de tarjeta puede enviar, de forma independiente, su propia notificación de la operación.</p>
