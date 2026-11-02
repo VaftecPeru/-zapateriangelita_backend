@@ -11,8 +11,8 @@
     @endphp
     <div style="max-width:620px;margin:0 auto;padding:32px 18px;">
         <div style="background:#fff;border:1px solid #e8e3dc;border-radius:14px;overflow:hidden;box-shadow:0 8px 28px rgba(0,0,0,.06);">
-            <div style="background:#111;color:#fff;text-align:center;padding:26px 20px;">
-                <img src="{{ $logo }}" alt="Zapatería Angelita" style="max-width:220px;width:72%;height:auto;background:#fff;border-radius:8px;padding:7px 10px;">
+            <div style="background:#ffffff;color:#111;text-align:center;padding:26px 20px;">
+                <img src="{{ $logo }}" alt="Zapatería Angelita" style="max-width:220px;width:72%;height:auto;background:#ffffff;border-radius:8px;padding:7px 10px;">
             </div>
 
             <div style="padding:34px 30px;">
@@ -45,7 +45,7 @@
                 </div>
 
                 <div style="text-align:center;margin:28px 0 12px;">
-                    <a href="{{ rtrim(env('FRONTEND_URL', 'http://localhost:5173'), '/') }}/profile/purchases" style="display:inline-block;background:#e30613;color:#fff;text-decoration:none;padding:14px 26px;border-radius:8px;font-weight:800;">Ver mi compra</a>
+                    <a href="{{ rtrim(env('FRONTEND_URL', 'http://localhost:5173'), '/') }}/profile/purchases" style="display:inline-block;background:#e30613;color:#ffffff!important;text-decoration:none;padding:14px 26px;border-radius:8px;font-weight:800;">Ver mi compra</a>
                 </div>
             </div>
 
