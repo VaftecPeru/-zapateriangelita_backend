@@ -24,8 +24,8 @@
         }
 
         .header {
-            background-color: #000000;
-            color: #ffffff;
+            background-color: #ffffff;
+            color: #000000;
             text-align: center;
             padding: 30px 20px;
         }
@@ -86,7 +86,7 @@
 
         .button {
             display: inline-block;
-            background-color: #000000;
+            background-color: #e30613;
             color: #ffffff;
             text-decoration: none;
             padding: 14px 28px;
@@ -133,7 +133,7 @@
             </div>
 
             <div class="button-container">
-                <a href="{{ env('FRONTEND_URL', 'http://localhost:5173') }}/login" class="button">Iniciar Sesión</a>
+                <a href="{{ $frontend }}/login" class="button" style="display:inline-block;background-color:#e30613;color:#ffffff!important;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:900;font-size:13px;text-transform:uppercase;letter-spacing:2px;">Iniciar Sesión</a>
             </div>
 
             <p style="margin-top: 40px; font-size: 13px; color: #777;">Si tú no solicitaste esta cuenta, por favor
