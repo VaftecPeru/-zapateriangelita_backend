@@ -1,58 +1,18 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
-<head>
-    <meta charset="utf-8">
-    <title>Compra confirmada - Zapatería Angelita</title>
-</head>
-<body style="margin:0;padding:0;background:#f2ede5;font-family:Arial,Helvetica,sans-serif;color:#222;">
-    @php
-        $frontend = rtrim(env('FRONTEND_URL', 'https://zapateriangelita.com'), '/');
-        $logo = app(\App\Services\BrandingService::class)->logoUrl();
-    @endphp
-    <div style="max-width:620px;margin:0 auto;padding:32px 18px;">
-        <div style="background:#fff;border:1px solid #e8e3dc;border-radius:14px;overflow:hidden;box-shadow:0 8px 28px rgba(0,0,0,.06);">
-            <div style="background:#ffffff;color:#111;text-align:center;padding:26px 20px;">
-                <img src="{{ $logo }}" alt="Zapatería Angelita" style="max-width:220px;width:72%;height:auto;background:#ffffff;border-radius:8px;padding:7px 10px;">
-            </div>
-
-            <div style="padding:34px 30px;">
-                <h2 style="margin:0 0 12px;font-size:23px;color:#111;">¡Gracias por tu compra, {{ $user->name }}!</h2>
-                <p style="margin:0 0 18px;line-height:1.7;color:#555;">
-                    Tu pago fue confirmado correctamente. Para que puedas consultar y dar seguimiento a tu compra, creamos automáticamente tu cuenta de cliente.
-                </p>
-
-                @if($order)
-                    <div style="background:#fff7f7;border:1px solid #ffd9dc;border-radius:10px;padding:16px 18px;margin:20px 0;">
-                        <div style="font-size:11px;color:#e30613;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;">Compra confirmada</div>
-                        <div style="margin-top:7px;font-size:16px;"><strong>Pedido:</strong> {{ $order->code }}</div>
-                        <div style="margin-top:5px;font-size:16px;"><strong>Total:</strong> ${{ number_format((float) $order->total, 2) }}</div>
-                    </div>
-                @endif
-
-                <div style="background:#f7f7f7;border:1px solid #e7e7e7;border-radius:10px;padding:20px;margin:22px 0;">
-                    <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:12px;color:#555;">Tus credenciales</div>
-                    <p style="margin:7px 0;"><strong>Usuario:</strong> {{ $user->email }}</p>
-                    <p style="margin:7px 0;"><strong>Contraseña temporal:</strong> <span style="font-family:monospace;background:#fff;border:1px solid #ddd;border-radius:5px;padding:4px 7px;">{{ $password }}</span></p>
-                </div>
-
-                <p style="line-height:1.7;color:#555;">
-                    Por seguridad, te recomendamos cambiar la contraseña temporal desde tu perfil después de ingresar.
-                </p>
-
-                <div style="background:#f5f8ff;border:1px solid #dbe7ff;border-radius:10px;padding:18px;margin:20px 0;color:#35425a;line-height:1.6;">
-                    <strong style="color:#111;">Acceso más rápido con Google</strong><br>
-                    Después de ingresar a <strong>Mis Compras</strong>, podrás vincular la misma cuenta de Google asociada a este correo. En tus próximos accesos podrás usar Google sin escribir la contraseña.
-                </div>
-
-                <div style="text-align:center;margin:28px 0 12px;">
-                    <a href="{{ rtrim(env('FRONTEND_URL', 'http://localhost:5173'), '/') }}/profile/purchases" style="display:inline-block;background:#e30613;color:#ffffff!important;text-decoration:none;padding:14px 26px;border-radius:8px;font-weight:800;">Ver mi compra</a>
-                </div>
-            </div>
-
-            <div style="padding:18px 24px;text-align:center;background:#fafafa;border-top:1px solid #eee;color:#888;font-size:12px;">
-                © {{ date('Y') }} Zapatería Angelita. Todos los derechos reservados.
-            </div>
-        </div>
-    </div>
-</body>
-</html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Compra confirmada | Zapatería Angelita</title></head>
+<body style="margin:0;padding:0;background-color:#ffffff;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;">
+@php
+    $frontend = rtrim(env('FRONTEND_URL', 'https://zapateriangelita.com'), '/');
+    $logo = 'https://zapateriangelita.com/images/logo-email.png';
+    $purchasesUrl = $frontend . '/profile/purchases';
+@endphp
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;">
+<tr><td align="center" style="padding:28px 14px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:620px;background-color:#ffffff;border:1px solid #eeeeee;border-radius:16px;">
+<tr><td align="center" style="padding:28px 20px;background-color:#ffffff;border-bottom:3px solid #e30613;"><img src="{{ $logo }}" alt="Zapatería Angelita" width="210" style="display:block;width:210px;max-width:100%;height:auto;border:0;margin:0 auto;"></td></tr>
+<tr><td style="padding:30px;background-color:#ffffff;">
+<h1 style="font-size:23px;line-height:1.4;margin:0 0 15px;color:#1a1a1a;">¡Gracias por tu compra, {{ $user->name }}!</h1><p style="font-size:14px;color:#555555;line-height:1.7;margin:0 0 16px;">Tu pago fue confirmado correctamente. Para que puedas consultar y dar seguimiento a tu compra, creamos automáticamente tu cuenta de cliente.</p>@if($order)<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#fff5f5;border:1px solid #ffd9dc;border-radius:10px;"><tr><td style="padding:18px;font-size:13px;line-height:1.8;color:#333333;"><p style="font-size:12px;color:#e30613;font-weight:bold;text-transform:uppercase;margin:0 0 10px;">Compra confirmada</p><p style="margin:5px 0;"><strong>Pedido:</strong> {{ $order->code }}</p><p style="margin:8px 0 0;"><strong>Total:</strong> <strong style="color:#e30613;">MXN {{ number_format((float) $order->total, 2) }}</strong></p></td></tr></table>@endif<div style="height:20px;"></div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#fafafa;border:1px solid #eeeeee;border-radius:10px;"><tr><td style="padding:18px;font-size:13px;line-height:1.8;color:#333333;"><p style="font-size:13px;font-weight:bold;text-transform:uppercase;margin:0 0 14px;">Tus credenciales de acceso</p><p style="font-size:12px;color:#777777;margin:0 0 6px;">Correo electrónico</p><p style="font-size:14px;margin:0 0 18px;overflow-wrap:anywhere;"><strong>{{ $user->email }}</strong></p><p style="font-size:12px;color:#777777;margin:0 0 6px;">Contraseña temporal</p><p style="font-size:18px;font-family:monospace;font-weight:bold;color:#e30613;margin:0;overflow-wrap:anywhere;">{{ $password }}</p></td></tr></table><div style="height:20px;"></div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#fff5f5;border:1px solid #ffd9dc;border-radius:10px;"><tr><td style="padding:18px;font-size:13px;line-height:1.8;color:#333333;"><strong>Recomendación de seguridad:</strong> Cambia tu contraseña temporal desde tu perfil después de iniciar sesión. No compartas estas credenciales.</td></tr></table><div style="height:20px;"></div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#fafafa;border:1px solid #eeeeee;border-radius:10px;"><tr><td style="padding:18px;font-size:13px;line-height:1.8;color:#333333;"><strong>Acceso con Google</strong><p style="margin:8px 0 0;">Después de ingresar a <strong>Mis Compras</strong>, podrás vincular tu cuenta de Google asociada a este correo, si tienes disponible esta función en tu perfil.</p></td></tr></table><table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0" style="margin:26px auto;"><tr><td align="center" bgcolor="#e30613" style="background-color:#e30613;border-radius:9px;"><a href="{{ $purchasesUrl }}" style="display:inline-block;background-color:#e30613;color:#ffffff;text-decoration:none;padding:14px 24px;font-size:14px;font-weight:bold;border-radius:9px;">Ver mi compra</a></td></tr></table><p style="font-size:12px;color:#777777;line-height:1.7;text-align:center;">Gracias por confiar en Zapatería Angelita.</p>
+</td></tr>
+<tr><td align="center" style="padding:18px;background-color:#ffffff;border-top:1px solid #eeeeee;color:#888888;font-size:11px;">© {{ date('Y') }} Zapatería Angelita. Todos los derechos reservados.</td></tr>
+</table></td></tr></table></body></html>
