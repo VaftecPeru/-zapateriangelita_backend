@@ -395,9 +395,9 @@ class TransactionalEmailNotificationTest extends TestCase
         $purchaseHtml = (new PurchaseConfirmedMail($order->load('items'), $user))->render();
         $resetHtml = (new PasswordResetLinkMail($user, 'token-render'))->render();
 
-        $this->assertStringContainsString('logo-angelita-horizontal.png', $purchaseHtml);
-        $this->assertStringContainsString('Costo de delivery', $purchaseHtml);
-        $this->assertStringContainsString('logo-angelita-horizontal.png', $resetHtml);
+        $this->assertStringContainsString('https://zapateriangelita.com/images/logo-email.png', $purchaseHtml);
+        $this->assertStringContainsString('Costo de envío', $purchaseHtml);
+        $this->assertStringContainsString('https://zapateriangelita.com/images/logo-email.png', $resetHtml);
         $this->assertStringContainsString('/reset-password?token=', $resetHtml);
     }
 }
