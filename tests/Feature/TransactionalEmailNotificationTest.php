@@ -240,7 +240,7 @@ class TransactionalEmailNotificationTest extends TestCase
         $html = (new WelcomeUserMail($user, 'google'))->render();
 
         $this->assertStringContainsString('Continuar con Google', $html);
-        $this->assertStringContainsString('logo-angelita-horizontal.png', $html);
+        $this->assertStringContainsString('https://zapateriangelita.com/images/logo-email.png', $html);
     }
 
     public function test_google_linked_user_can_request_welcome_email_without_blocking_login_flow(): void
