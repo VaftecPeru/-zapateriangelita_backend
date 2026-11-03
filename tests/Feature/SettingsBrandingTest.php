@@ -111,6 +111,36 @@ class SettingsBrandingTest extends TestCase
         $this->assertFileExists(app(MediaStorageService::class)->absolutePath($relative));
     }
 
+    public function test_mexican_whatsapp_number_requires_ten_digits_after_country_code(): void
+    {
+        $admin = $this->user('whatsapp-admin@example.com', 'admin');
+        Sanctum::actingAs($admin);
+
+        $this->putJson('/api/settings/whatsapp_number', [
+            'value' => '+52557863609',
+        ])->assertUnprocessable()->assertJsonValidationErrors('value');
+
+        $this->assertNull(Setting::where('key', 'whatsapp_number')->value('value'));
+
+        $this->putJson('/api/settings/whatsapp_number', [
+            'value' => '+5255123456789',
+        ])->assertUnprocessable()->assertJsonValidationErrors('value');
+
+        $this->putJson('/api/settings/whatsapp_number', [
+            'value' => '+525512345678',
+        ])->assertOk();
+
+        $this->assertSame(
+            '+525512345678',
+            Setting::where('key', 'whatsapp_number')->value('value')
+        );
+
+        // Other countries retain the existing international-number validation.
+        $this->putJson('/api/settings/whatsapp_number', [
+            'value' => '+51900112844',
+        ])->assertOk();
+    }
+
     public function test_regular_user_cannot_change_site_settings(): void
     {
         $user = $this->user('cliente@example.com', 'user');
