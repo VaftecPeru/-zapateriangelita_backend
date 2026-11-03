@@ -6,6 +6,7 @@ use App\Models\Setting;
 use App\Services\MediaStorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 class SettingController extends Controller
 {
@@ -80,6 +81,16 @@ class SettingController extends Controller
         }
 
         $validated = $request->validate($rules);
+
+        if ($key === 'whatsapp_number') {
+            $digits = ltrim((string) $validated['value'], '+');
+
+            if (str_starts_with($digits, '52') && !preg_match('/^52[0-9]{10}$/', $digits)) {
+                throw ValidationException::withMessages([
+                    'value' => 'El número mexicano (+52) debe tener exactamente 10 dígitos locales.',
+                ]);
+            }
+        }
 
         if ($key === 'homepage_banners') {
             $this->validateHomepageBanners((string) $validated['value']);
