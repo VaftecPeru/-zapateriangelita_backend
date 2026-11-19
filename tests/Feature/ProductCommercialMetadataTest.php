@@ -75,6 +75,27 @@ class ProductCommercialMetadataTest extends TestCase
         $this->getJson('/api/products/'.$product->id)->assertNotFound();
     }
 
+    public function test_manual_publication_state_preserves_inventory_and_can_be_reactivated(): void
+    {
+        $this->postJson('/api/products', $this->payload() + ['publication_state' => 'sold_out'])
+            ->assertCreated()
+            ->assertJsonPath('publication_state', 'sold_out')
+            ->assertJsonPath('is_active', false)
+            ->assertJsonPath('stock', 7);
+
+        $product = Product::where('product_code', 'ANG-2001')->firstOrFail();
+        $url = '/api/products/'.$product->id;
+        $this->putJson($url, ['publication_state' => 'archived'])->assertOk()
+            ->assertJsonPath('publication_state', 'archived')
+            ->assertJsonPath('is_active', false);
+        $this->getJson($url)->assertNotFound();
+
+        $this->putJson($url, ['publication_state' => 'active'])->assertOk()
+            ->assertJsonPath('publication_state', 'active')
+            ->assertJsonPath('is_active', true)
+            ->assertJsonPath('stock', 7);
+    }
+
     public function test_explicit_publish_after_draft_respects_catalog_rules_and_retains_variants(): void
     {
         $data = $this->payload();

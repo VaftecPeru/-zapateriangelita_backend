@@ -76,7 +76,7 @@ class ProductPublicationService
      */
     public function synchronize(Product $product): void
     {
-        if (!$product->auto_publish) {
+        if (!$product->auto_publish || in_array($product->publication_state, ['draft', 'sold_out', 'archived'], true)) {
             return;
         }
 
