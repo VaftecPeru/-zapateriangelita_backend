@@ -240,7 +240,7 @@ class TransactionalEmailNotificationTest extends TestCase
         $html = (new WelcomeUserMail($user, 'google'))->render();
 
         $this->assertStringContainsString('Continuar con Google', $html);
-        $this->assertStringContainsString('https://zapateriangelita.com/images/logo-email.png', $html);
+        $this->assertStringContainsString('https://zapateriangelita.com/logo-angelita-horizontal.png', $html);
     }
 
     public function test_google_linked_user_can_request_welcome_email_without_blocking_login_flow(): void
@@ -395,9 +395,9 @@ class TransactionalEmailNotificationTest extends TestCase
         $purchaseHtml = (new PurchaseConfirmedMail($order->load('items'), $user))->render();
         $resetHtml = (new PasswordResetLinkMail($user, 'token-render'))->render();
 
-        $this->assertStringContainsString('https://zapateriangelita.com/images/logo-email.png', $purchaseHtml);
+        $this->assertStringContainsString('https://zapateriangelita.com/logo-angelita-horizontal.png', $purchaseHtml);
         $this->assertStringContainsString('Costo de envío', $purchaseHtml);
-        $this->assertStringContainsString('https://zapateriangelita.com/images/logo-email.png', $resetHtml);
+        $this->assertStringContainsString('https://zapateriangelita.com/logo-angelita-horizontal.png', $resetHtml);
         $this->assertStringContainsString('/reset-password?token=', $resetHtml);
     }
 }
