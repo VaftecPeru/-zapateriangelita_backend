@@ -59,6 +59,7 @@ class ProductController extends Controller
             'prod_',
             1200,
             82,
+            maxHeight: 1200,
         );
     }
 

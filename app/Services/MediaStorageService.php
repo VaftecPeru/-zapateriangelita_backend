@@ -98,6 +98,7 @@ class MediaStorageService
         string $prefix,
         int $maxWidth,
         int $quality,
+        ?int $maxHeight = null,
     ): string {
         $relativeDirectory = 'uploads/' . trim($subfolder, '/');
         $directory = $this->ensureDirectory($relativeDirectory);
@@ -120,9 +121,10 @@ class MediaStorageService
             $width = imagesx($image);
             $height = imagesy($image);
 
-            if ($width > $maxWidth) {
-                $newWidth = $maxWidth;
-                $newHeight = (int) round(($height / $width) * $newWidth);
+            $scale = min(1, $maxWidth / $width, ($maxHeight ?? $height) / $height);
+            if ($scale < 1) {
+                $newWidth = max(1, (int) round($width * $scale));
+                $newHeight = max(1, (int) round($height * $scale));
                 $resized = imagecreatetruecolor($newWidth, $newHeight);
                 imagealphablending($resized, false);
                 imagesavealpha($resized, true);
