@@ -39,6 +39,7 @@ class Product extends Model
         'status',
         'is_active',
         'auto_publish',
+        'publication_state',
         'import_pending_data',
         'category_id',
         'subcategory_id',

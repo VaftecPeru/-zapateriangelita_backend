@@ -398,14 +398,19 @@ class ProductController extends Controller
 
         foreach ($colors as $index => $color) {
             $files = $uploaded[$index] ?? [];
-            $files = is_array($files) ? array_slice($files, 0, 5) : [];
-            if (!$files && !empty($existing[$color])) {
-                $result[$color] = array_slice($existing[$color], 0, 5);
-                continue;
+            $retained = array_slice($existing[$color] ?? [], 0, 5);
+            if ($files && !$request->boolean('append_color_images')) {
+                $retained = [];
+            }
+            if (count($files) > 5 - count($retained)) {
+                throw ValidationException::withMessages([
+                    'color_images' => "El color {$color} admite hasta cinco fotos.",
+                ]);
             }
 
-            if ($files) {
-                $result[$color] = array_map(fn ($file) => $this->optimizeImage($file), $files);
+            $images = array_merge($retained, array_map(fn ($file) => $this->optimizeImage($file), $files));
+            if ($images) {
+                $result[$color] = $images;
             }
         }
 
@@ -581,6 +586,7 @@ class ProductController extends Controller
             'subcategory_id' => 'nullable|integer|exists:subcategories,id',
             'price' => 'required|numeric|min:0',
             'is_active' => 'sometimes|boolean',
+            'publication_state' => 'sometimes|required|in:draft,active,sold_out,archived',
             'discounted_price' => 'nullable|numeric|min:0',
             'stock' => 'required|integer|min:0',
             'size' => 'nullable|string|max:50',
@@ -588,7 +594,10 @@ class ProductController extends Controller
             'material' => 'nullable|string|max:100',
             'img' => 'nullable',
             'img_file' => 'nullable|file|image|mimes:jpeg,png,jpg,gif,webp|max:20480',
+            'new_images' => 'sometimes|array|max:5',
             'new_images.*' => 'nullable|file|image|mimes:jpeg,png,jpg,gif,webp|max:20480',
+            'color_images.*' => 'array|max:5',
+            'color_images.*.*' => 'required|file|image|mimes:jpeg,png,jpg,gif,webp|max:20480',
             'description' => 'nullable|string|max:5000',
             'discount' => 'nullable|numeric|min:0|max:100',
             'status' => 'required|in:normal,oferta,nuevo',
@@ -669,7 +678,9 @@ class ProductController extends Controller
                 }
             }
 
-            $requestDraft = $request->has('is_active') && !$request->boolean('is_active');
+            $requestDraft = isset($validated['publication_state'])
+                ? $validated['publication_state'] !== 'active'
+                : ($request->has('is_active') && !$request->boolean('is_active'));
             DB::transaction(function () use (&$product, $validated, $variantStocks, $sizeStocks, $requestDraft, $colorPrices) {
                 // Un alta manual sin precio o fotografía comienza en borrador.
                 // El alta admite borrador explícito, aun con precio y stock.
@@ -732,6 +743,7 @@ class ProductController extends Controller
             'subcategory_id' => 'nullable|integer|exists:subcategories,id',
             'price' => 'nullable|numeric|min:0',
             'is_active' => 'sometimes|boolean',
+            'publication_state' => 'sometimes|required|in:draft,active,sold_out,archived',
             'auto_publish' => 'sometimes|boolean',
             'discounted_price' => 'nullable|numeric|min:0',
             'stock' => 'nullable|integer|min:0',
@@ -740,7 +752,10 @@ class ProductController extends Controller
             'material' => 'nullable|string|max:100',
             'img' => 'nullable',
             'img_file' => 'sometimes|nullable|file|image|mimes:jpeg,png,jpg,webp|max:20480',
+            'new_images' => 'sometimes|array|max:5',
             'new_images.*' => 'sometimes|nullable|file|image|mimes:jpeg,png,jpg,webp|max:20480',
+            'color_images.*' => 'array|max:5',
+            'color_images.*.*' => 'required|file|image|mimes:jpeg,png,jpg,gif,webp|max:20480',
             'description' => 'nullable|string|max:5000',
             'discount' => 'nullable|numeric|min:0|max:100',
             'status' => 'sometimes|in:normal,oferta,nuevo',
@@ -758,7 +773,11 @@ class ProductController extends Controller
         $validated = $validator->validated();
         $colorPrices = $request->has('color_prices')
             ? $this->normalizeColorPrices($request->input('color_prices')) : null;
-        if ($request->has('is_active')) {
+        if (isset($validated['publication_state'])) {
+            $validated['auto_publish'] = $validated['publication_state'] === 'active';
+            $validated['is_active'] = false;
+        } elseif ($request->has('is_active')) {
+            $validated['publication_state'] = null;
             // El administrador puede detener la publicación automática.
             $validated['auto_publish'] = $request->boolean('is_active');
             $validated['is_active'] = false;
@@ -832,7 +851,7 @@ class ProductController extends Controller
                 }
             }
         } else {
-            $currentImages = is_array($product->images) ? $product->images : [];
+            $currentImages = $product->images ?: ($product->img ? [$product->img] : []);
             $finalImages = $currentImages;
             if (count($newFiles) > 0) {
                 foreach ($newFiles as $file) {
