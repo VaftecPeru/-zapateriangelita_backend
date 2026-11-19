@@ -220,15 +220,17 @@ class AuthController extends Controller
                 $user->save();
                 $user->tokens()->delete();
 
-                try {
-                    Mail::to($user->email)->send(new PasswordChangedMail($user, 'password_reset'));
-                } catch (\Throwable $e) {
-                    Log::error('PASSWORD_CHANGED_EMAIL_FAILED', [
-                        'user_id' => $user->id,
-                        'exception' => get_class($e),
-                        'message' => $e->getMessage(),
-                    ]);
-                }
+                app()->terminating(function () use ($user): void {
+                    try {
+                        Mail::to($user->email)->send(new PasswordChangedMail($user, 'password_reset'));
+                    } catch (\Throwable $e) {
+                        Log::error('PASSWORD_CHANGED_EMAIL_FAILED', [
+                            'user_id' => $user->id,
+                            'exception' => get_class($e),
+                            'message' => $e->getMessage(),
+                        ]);
+                    }
+                });
             }
         );
 

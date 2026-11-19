@@ -8,7 +8,7 @@
 <body style="margin:0;padding:0;background-color:#ffffff;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;">
 @php
     $frontend = rtrim(env('FRONTEND_URL', 'https://zapateriangelita.com'), '/');
-    $logo = 'https://zapateriangelita.com/images/logo-email.png';
+    $logo = 'https://zapateriangelita.com/logo-angelita-horizontal.png';
     $resetUrl = $frontend . '/reset-password?token='
         . rawurlencode($token)
         . '&email='
@@ -20,7 +20,7 @@
             <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:620px;background-color:#ffffff;border:1px solid #eeeeee;border-radius:16px;">
                 <tr>
                     <td align="center" style="padding:28px 20px;background-color:#ffffff;border-bottom:3px solid #e30613;">
-                        <img src="{{ $logo }}" alt="Zapatería Angelita" width="210" style="display:block;width:210px;max-width:100%;height:auto;border:0;margin:0 auto;">
+                        <img src="{{ $logo }}" alt="Zapatería Angelita" width="210" style="background-color:#ffffff;display:block;width:210px;max-width:100%;height:auto;border:0;margin:0 auto;">
                     </td>
                 </tr>
                 <tr>
