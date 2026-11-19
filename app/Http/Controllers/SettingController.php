@@ -22,6 +22,7 @@ class SettingController extends Controller
         'reservation_policies',
         'privacy_policy',
         'homepage_banners',
+        'children_menu',
     ];
 
     private const EDITABLE_KEYS = [
@@ -32,6 +33,7 @@ class SettingController extends Controller
         'reservation_policies',
         'privacy_policy',
         'homepage_banners',
+        'children_menu',
     ];
 
     public function index(): JsonResponse
@@ -80,6 +82,10 @@ class SettingController extends Controller
             $rules['value'] = ['required', 'string', 'max:2048'];
         }
 
+        if ($key === 'children_menu') {
+            $rules['value'] = ['required', 'string', 'json', 'max:20000'];
+        }
+
         $validated = $request->validate($rules);
 
         if ($key === 'whatsapp_number') {
@@ -94,6 +100,16 @@ class SettingController extends Controller
 
         if ($key === 'homepage_banners') {
             $this->validateHomepageBanners((string) $validated['value']);
+        }
+
+        if ($key === 'children_menu') {
+            $lists = json_decode($validated['value'], true);
+            $rules = [
+                'groups' => ['required', 'array', 'list', 'size:4'],
+                'groups.*' => ['required', 'array', 'list', 'min:1', 'max:16'],
+                'groups.*.*' => ['required', 'string', 'max:60'],
+            ];
+            validator(['groups' => $lists], $rules)->validate();
         }
 
         $setting = Setting::updateOrCreate(
