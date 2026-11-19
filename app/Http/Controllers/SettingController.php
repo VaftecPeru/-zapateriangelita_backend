@@ -22,6 +22,7 @@ class SettingController extends Controller
         'reservation_policies',
         'privacy_policy',
         'homepage_banners',
+        'store_preloader',
     ];
 
     private const EDITABLE_KEYS = [
@@ -32,6 +33,7 @@ class SettingController extends Controller
         'reservation_policies',
         'privacy_policy',
         'homepage_banners',
+        'store_preloader',
     ];
 
     public function index(): JsonResponse
@@ -76,6 +78,8 @@ class SettingController extends Controller
             $rules['value'] = ['required', 'string', 'regex:/^\\+?[0-9]{8,20}$/'];
         } elseif ($key === 'contact_email') {
             $rules['value'] = ['required', 'email:rfc', 'max:255'];
+        } elseif ($key === 'store_preloader') {
+            $rules['value'] = ['required', 'string', 'in:branded,simple'];
         } elseif ($key === 'logo_url') {
             $rules['value'] = ['required', 'string', 'max:2048'];
         }
