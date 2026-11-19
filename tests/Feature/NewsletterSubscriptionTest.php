@@ -26,6 +26,9 @@ class NewsletterSubscriptionTest extends TestCase
             $table->timestamps();
         });
 
+        $migration = require database_path('migrations/2026_11_19_220000_add_newsletter_delivery_tracking.php');
+        $migration->up();
+
         Schema::create('store_interactions', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('user_id')->nullable();
