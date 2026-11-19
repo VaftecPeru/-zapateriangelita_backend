@@ -18,6 +18,15 @@ class Kernel extends ConsoleKernel
         $schedule->command('checkout:reconcile-openpay --limit=20')
             ->everyFiveMinutes()
             ->withoutOverlapping(10);
+
+        $schedule->command('newsletter:send welcome')
+            ->everyMinute()
+            ->withoutOverlapping();
+
+        $schedule->command('newsletter:send monthly')
+            ->dailyAt('10:00')
+            ->timezone('America/Mexico_City')
+            ->withoutOverlapping();
     }
 
     protected function commands(): void
