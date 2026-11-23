@@ -137,6 +137,22 @@ class SettingsBrandingTest extends TestCase
         $this->get($path)->assertOk()->assertHeader('Content-Type', 'image/gif');
     }
 
+    public function test_uploading_preloader_does_not_change_the_main_store_logo(): void
+    {
+        Setting::create(['key' => 'logo_url', 'value' => '/api/media/uploads/settings/existing_logo.webp']);
+        $admin = $this->user('preloader-other-admin@example.com', 'admin');
+        Sanctum::actingAs($admin);
+
+        $response = $this->post('/api/settings/store_preloader_image_upload', [
+            '_method' => 'PUT',
+            'image' => UploadedFile::fake()->image('precarga.png', 360, 180),
+        ], ['Accept' => 'application/json']);
+
+        $response->assertOk();
+        $this->assertStringEndsWith('.png', (string) $response->json('data.path'));
+        $this->assertSame('/api/media/uploads/settings/existing_logo.webp', Setting::where('key', 'logo_url')->value('value'));
+    }
+
     public function test_preloader_upload_rejects_unsupported_files_and_unauthorized_users(): void
     {
         $admin = $this->user('image-admin@example.com', 'admin');
