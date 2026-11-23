@@ -111,6 +111,50 @@ class SettingsBrandingTest extends TestCase
         $this->assertFileExists(app(MediaStorageService::class)->absolutePath($relative));
     }
 
+    public function test_superadmin_can_publish_animated_gif_preloader_without_converting_it(): void
+    {
+        $admin = $this->user('preloader-admin@example.com', 'superadmin');
+        Sanctum::actingAs($admin);
+
+        $image = UploadedFile::fake()->image('precarga.gif', 320, 180);
+        $originalBytes = file_get_contents($image->getPathname());
+        $response = $this->post('/api/settings/store_preloader_image_upload', [
+            '_method' => 'PUT',
+            'image' => $image,
+        ], ['Accept' => 'application/json']);
+
+        $response->assertOk()->assertJsonPath('data.mode', 'branded');
+        $path = (string) $response->json('data.path');
+        $this->assertStringStartsWith('/api/media/uploads/settings/preloader_', $path);
+        $this->assertStringEndsWith('.gif', $path);
+        $this->assertSame($path, Setting::where('key', 'store_preloader_image')->value('value'));
+        $this->assertSame('branded', Setting::where('key', 'store_preloader')->value('value'));
+
+        $relative = app(MediaStorageService::class)->normalizeRelativePath($path);
+        $this->assertNotNull($relative);
+        $this->assertSame($originalBytes, file_get_contents(app(MediaStorageService::class)->absolutePath($relative)));
+        $this->getJson('/api/settings')->assertOk()->assertJsonPath('data.store_preloader_image', $path);
+        $this->get($path)->assertOk()->assertHeader('Content-Type', 'image/gif');
+    }
+
+    public function test_preloader_upload_rejects_unsupported_files_and_unauthorized_users(): void
+    {
+        $admin = $this->user('image-admin@example.com', 'admin');
+        Sanctum::actingAs($admin);
+        $this->post('/api/settings/store_preloader_image_upload', [
+            '_method' => 'PUT',
+            'image' => UploadedFile::fake()->create('unsafe.svg', 10, 'image/svg+xml'),
+        ], ['Accept' => 'application/json'])->assertUnprocessable();
+        $this->assertDatabaseMissing('settings', ['key' => 'store_preloader_image']);
+
+        $user = $this->user('cliente-preloader@example.com', 'user');
+        Sanctum::actingAs($user);
+        $this->post('/api/settings/store_preloader_image_upload', [
+            '_method' => 'PUT',
+            'image' => UploadedFile::fake()->image('precarga.png', 320, 180),
+        ], ['Accept' => 'application/json'])->assertForbidden();
+    }
+
     public function test_regular_user_cannot_change_site_settings(): void
     {
         $user = $this->user('cliente@example.com', 'user');
