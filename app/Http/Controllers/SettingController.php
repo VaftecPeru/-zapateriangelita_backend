@@ -6,6 +6,7 @@ use App\Models\Setting;
 use App\Services\MediaStorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class SettingController extends Controller
 {
@@ -22,6 +23,7 @@ class SettingController extends Controller
         'privacy_policy',
         'homepage_banners',
         'store_preloader',
+        'store_preloader_image',
     ];
 
     private const EDITABLE_KEYS = [
@@ -63,6 +65,10 @@ class SettingController extends Controller
 
         if ($key === 'site_logo_image') {
             return $this->uploadLogoImage($request);
+        }
+
+        if ($key === 'store_preloader_image_upload') {
+            return $this->uploadPreloaderImage($request);
         }
 
         if (!in_array($key, self::EDITABLE_KEYS, true)) {
@@ -158,6 +164,26 @@ class SettingController extends Controller
             'data' => [
                 'path' => $path,
             ],
+        ]);
+    }
+
+    private function uploadPreloaderImage(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'image' => ['required', 'image', 'mimetypes:image/gif,image/png,image/webp', 'max:8192'],
+        ]);
+
+        $path = $this->media->storePreloaderAsset($validated['image']);
+
+        DB::transaction(function () use ($path): void {
+            Setting::updateOrCreate(['key' => 'store_preloader_image'], ['value' => $path]);
+            Setting::updateOrCreate(['key' => 'store_preloader'], ['value' => 'branded']);
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Precarga publicada correctamente.',
+            'data' => ['path' => $path, 'mode' => 'branded'],
         ]);
     }
 

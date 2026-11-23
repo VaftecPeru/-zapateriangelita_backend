@@ -169,6 +169,31 @@ class MediaStorageService
         return $this->publicUrl($relativeDirectory . '/' . $filename);
     }
 
+    /**
+     * Preserva los fotogramas de GIF y WebP animados; no los convierte a WebP estático.
+     * Los archivos se guardan fuera del document root y se sirven por /api/media.
+     */
+    public function storePreloaderAsset(UploadedFile $file): string
+    {
+        $extension = match ((string) $file->getMimeType()) {
+            'image/gif' => 'gif',
+            'image/png' => 'png',
+            'image/webp' => 'webp',
+            default => throw new RuntimeException('Formato de precarga no permitido.'),
+        };
+
+        $folder = 'uploads/settings';
+        $directory = $this->ensureDirectory($folder);
+        $name = 'preloader_' . bin2hex(random_bytes(16)) . '.' . $extension;
+        $destination = $directory . DIRECTORY_SEPARATOR . $name;
+
+        if (!@copy($file->getPathname(), $destination)) {
+            throw new RuntimeException('No se pudo guardar el archivo de precarga.');
+        }
+
+        return $this->publicUrl($folder . '/' . $name);
+    }
+
     public function resolveForRead(string $reference): ?string
     {
         $relativePath = $this->normalizeRelativePath($reference);
@@ -229,10 +254,10 @@ class MediaStorageService
 
         if (Schema::hasTable('settings')) {
             DB::table('settings')
-                ->whereIn('key', ['logo_url', 'homepage_banners'])
+                ->whereIn('key', ['logo_url', 'homepage_banners', 'store_preloader_image'])
                 ->get(['key', 'value'])
                 ->each(function ($setting) use (&$references) {
-                    if ($setting->key === 'logo_url') {
+                    if (in_array($setting->key, ['logo_url', 'store_preloader_image'], true)) {
                         $this->appendReference($references, $setting->value);
                         return;
                     }
