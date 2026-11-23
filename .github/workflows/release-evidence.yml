@@ -1,3 +1,6 @@
+# SHA fijos del último main auditado (23/11/2026), no del código develop.
+# No cambie estos valores sin corroborar main, CI push y artefactos de ambas aplicaciones.
+# Este control es solo evidencia GitHub y NO concede autorización de despliegue.
 name: Angelita release evidence - GitHub only
 
 on:
@@ -9,12 +12,12 @@ on:
         description: "SHA exacto frontend main (40 caracteres)"
         type: string
         required: true
-        default: "b2ed5e1180408f2f405eb0636b052864752d14af"
+        default: "2fe58ed24d71f13ad642980c03dc821cb6e6cabc"
       backend_main_sha:
         description: "SHA exacto backend main (40 caracteres)"
         type: string
         required: true
-        default: "7ad95327d38feb8c4f81fa1ff4fc695f5c694870"
+        default: "cdcb13e449ace2c11a5d0c75f425208d69ab6c69"
 
 permissions:
   contents: read
@@ -31,8 +34,8 @@ jobs:
     timeout-minutes: 8
     env:
       GITHUB_TOKEN: ${{ github.token }}
-      EXPECTED_FRONTEND_SHA: ${{ inputs.frontend_main_sha || 'b2ed5e1180408f2f405eb0636b052864752d14af' }}
-      EXPECTED_BACKEND_SHA: ${{ inputs.backend_main_sha || '7ad95327d38feb8c4f81fa1ff4fc695f5c694870' }}
+      EXPECTED_FRONTEND_SHA: ${{ inputs.frontend_main_sha || '2fe58ed24d71f13ad642980c03dc821cb6e6cabc' }}
+      EXPECTED_BACKEND_SHA: ${{ inputs.backend_main_sha || 'cdcb13e449ace2c11a5d0c75f425208d69ab6c69' }}
     steps:
       - name: Checkout audited source
         uses: actions/checkout@v4
