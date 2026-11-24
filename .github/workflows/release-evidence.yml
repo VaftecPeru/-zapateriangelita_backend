@@ -48,6 +48,18 @@ jobs:
       - name: Validate main SHAs, GitHub Actions and artifact metadata
         run: python3 scripts/release_evidence.py
 
+      # Read-only diagnostic of the newly observed main SHAs. The existing gate
+      # remains unchanged and must still pass before the branch is merged.
+      - name: Audit observed main candidates (read only, no deploy)
+        if: always()
+        env:
+          EXPECTED_FRONTEND_SHA: "43603170f104ed2c2e6c111eb85465d74029e8f5"
+          EXPECTED_BACKEND_SHA: "4732dd8b500756fd73585573b34fa18cb3e48ed4"
+        run: |
+          mkdir -p "$RUNNER_TEMP/angelita-candidate-audit"
+          cd "$RUNNER_TEMP/angelita-candidate-audit"
+          python3 "$GITHUB_WORKSPACE/scripts/release_evidence.py"
+
       - name: Publish audit evidence (no secrets)
         if: always()
         uses: actions/upload-artifact@v4
