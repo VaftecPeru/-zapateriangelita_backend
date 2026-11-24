@@ -2,14 +2,17 @@
 
 namespace Tests\Feature;
 
+use App\Mail\NewsletterMail;
 use App\Mail\OrderStatusMail;
 use App\Mail\PasswordChangedMail;
 use App\Mail\PasswordResetLinkMail;
 use App\Mail\PurchaseConfirmedMail;
 use App\Mail\TemporaryPasswordMail;
+use App\Mail\UserCredentialsMail;
 use App\Mail\WelcomeUserMail;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\Setting;
 use App\Models\User;
 use App\Services\DeferredOrderNotificationService;
 use App\Services\PurchaseNotificationService;
@@ -240,7 +243,7 @@ class TransactionalEmailNotificationTest extends TestCase
         $html = (new WelcomeUserMail($user, 'google'))->render();
 
         $this->assertStringContainsString('Continuar con Google', $html);
-        $this->assertStringContainsString('logo-angelita-horizontal.png', $html);
+        $this->assertStringContainsString('/logo-angelita-horizontal.png', $html);
     }
 
     public function test_google_linked_user_can_request_welcome_email_without_blocking_login_flow(): void
@@ -392,12 +395,39 @@ class TransactionalEmailNotificationTest extends TestCase
         $user = $this->user('render@example.com');
         $order = $this->paidOrder($user);
 
-        $purchaseHtml = (new PurchaseConfirmedMail($order->load('items'), $user))->render();
-        $resetHtml = (new PasswordResetLinkMail($user, 'token-render'))->render();
+        config(['app.url' => 'https://api.zapateriangelita.com']);
+        Schema::create('settings', function (Blueprint $table) {
+            $table->id();
+            $table->string('key')->unique();
+            $table->text('value')->nullable();
+            $table->timestamps();
+        });
+        $setting = Setting::create([
+            'key' => 'logo_url',
+            'value' => '/api/media/uploads/settings/logo_primero.webp',
+        ]);
+        $purchase = new PurchaseConfirmedMail($order->load('items'), $user);
+        $reset = new PasswordResetLinkMail($user, 'token-render');
+        $welcomeNewsletter = new NewsletterMail(true, 'https://example.test/cancelar', collect(), collect());
+        $monthlyNewsletter = new NewsletterMail(false, 'https://example.test/cancelar', collect(), collect());
 
-        $this->assertStringContainsString('logo-angelita-horizontal.png', $purchaseHtml);
-        $this->assertStringContainsString('Costo de delivery', $purchaseHtml);
-        $this->assertStringContainsString('logo-angelita-horizontal.png', $resetHtml);
-        $this->assertStringContainsString('/reset-password?token=', $resetHtml);
+        $this->assertStringContainsString('https://api.zapateriangelita.com'.$setting->value, $welcomeNewsletter->render());
+        $setting->update(['value' => '/api/media/uploads/settings/logo_vigente.webp']);
+
+        foreach ([
+            $welcomeNewsletter,
+            $monthlyNewsletter,
+            $purchase,
+            $reset,
+            new WelcomeUserMail($user),
+            new PasswordChangedMail($user),
+            new TemporaryPasswordMail($user, 'Temporal123'),
+            new UserCredentialsMail($user, 'Temporal123', $order),
+            new OrderStatusMail($order),
+        ] as $mail) {
+            $this->assertStringContainsString('https://api.zapateriangelita.com'.$setting->value, $mail->render());
+        }
+        $this->assertStringContainsString('Costo de envío', $purchase->render());
+        $this->assertStringContainsString('/reset-password?token=', $reset->render());
     }
 }
