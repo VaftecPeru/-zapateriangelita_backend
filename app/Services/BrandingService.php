@@ -49,18 +49,19 @@ class BrandingService
 
     private function emailImagePath(string $relative): string
     {
-        if (!str_ends_with(strtolower($relative), '.webp') || !function_exists('imagecreatefromwebp')) {
+        $extension = strtolower(pathinfo($relative, PATHINFO_EXTENSION));
+        if (!in_array($extension, ['webp', 'png'], true) || !function_exists('imagecreatefromstring')) {
             return $relative;
         }
 
         try {
-            return $this->transparentPng($relative) ?? $relative;
+            return $this->whitePng($relative) ?? $relative;
         } catch (RuntimeException) {
             return $relative;
         }
     }
 
-    private function transparentPng(string $relative): ?string
+    private function whitePng(string $relative): ?string
     {
         $source = $this->media->resolveForRead($relative);
         $size = $source === null ? false : @filesize($source);
@@ -74,18 +75,20 @@ class BrandingService
         }
 
         $directory = dirname($relative);
-        $png = ($directory === '.' ? '' : $directory . '/') . 'email-logo-' . $hash . '.png';
+        $png = ($directory === '.' ? '' : $directory . '/') . 'email-logo-white-' . $hash . '.png';
         $destination = $this->media->absolutePath($png);
         if (is_file($destination)) {
             return $png;
         }
 
         $dimensions = @getimagesize($source);
-        if (!$dimensions || $dimensions[2] !== IMAGETYPE_WEBP || $dimensions[0] * $dimensions[1] > 4_000_000) {
+        if (!$dimensions || !in_array($dimensions[2], [IMAGETYPE_WEBP, IMAGETYPE_PNG], true) ||
+            $dimensions[0] * $dimensions[1] > 4_000_000) {
             return null;
         }
 
-        $image = @imagecreatefromwebp($source);
+        $data = @file_get_contents($source);
+        $image = $data === false ? false : @imagecreatefromstring($data);
         if ($image === false) {
             return null;
         }
@@ -96,10 +99,16 @@ class BrandingService
         }
 
         try {
-            imagealphablending($image, false);
-            imagesavealpha($image, true);
+            [$width, $height] = $dimensions;
+            $canvas = imagecreatetruecolor($width, $height);
+            if ($canvas === false) {
+                return null;
+            }
+            imagefill($canvas, 0, 0, 0xffffff);
+            imagealphablending($canvas, true);
+            imagecopy($canvas, $image, 0, 0, 0, 0, $width, $height);
 
-            if (!@imagepng($image, $temporary) || !@filesize($temporary) ||
+            if (!@imagepng($canvas, $temporary) || !@filesize($temporary) ||
                 !@chmod($temporary, 0644) || !@rename($temporary, $destination)) {
                 return null;
             }

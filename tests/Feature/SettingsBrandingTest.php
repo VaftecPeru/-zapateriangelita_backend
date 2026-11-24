@@ -202,7 +202,7 @@ class SettingsBrandingTest extends TestCase
         ])->assertOk();
     }
 
-    public function test_email_logo_preserves_transparency_and_black_details_in_png(): void
+    public function test_email_logo_uses_white_background_and_preserves_black_details(): void
     {
         config(['app.url' => 'https://api.zapateriangelita.com']);
         $media = app(MediaStorageService::class);
@@ -221,12 +221,12 @@ class SettingsBrandingTest extends TestCase
         $setting = Setting::create(['key' => 'logo_url', 'value' => $media->publicUrl($relative)]);
         $branding = app(BrandingService::class);
         $url = $branding->logoUrl();
-        $this->assertStringStartsWith('https://api.zapateriangelita.com/api/media/uploads/settings/email-logo-', $url);
+        $this->assertStringStartsWith('https://api.zapateriangelita.com/api/media/uploads/settings/email-logo-white-', $url);
         $this->assertStringEndsWith('.png', $url);
         $this->get(parse_url($url, PHP_URL_PATH))->assertOk()->assertHeader('Content-Type', 'image/png');
 
         $png = imagecreatefrompng($media->resolveForRead($url));
-        $this->assertSame(127, (imagecolorat($png, 0, 0) >> 24) & 0x7f);
+        $this->assertSame(0xffffff, imagecolorat($png, 0, 0));
         $this->assertSame(0, imagecolorat($png, 4, 4));
         $this->assertSame($original, hash_file('sha256', $source));
         $this->assertSame($media->publicUrl($relative), $setting->fresh()->value);
