@@ -10,7 +10,7 @@
     <tr><td align="center" style="padding:28px 14px;">
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#fff;border:1px solid #eee;border-radius:16px;">
             <tr><td align="center" style="padding:26px 20px;border-bottom:3px solid #e30613;">
-                <img src="{{ $storeUrl }}/logo-angelita-horizontal.png" alt="Zapatería Angelita" width="210" style="display:block;max-width:100%;height:auto;border:0;">
+                <img src="{{ app(\App\Services\BrandingService::class)->logoUrl() }}" alt="Zapatería Angelita" width="210" style="display:block;max-width:100%;height:auto;border:0;">
             </td></tr>
             <tr><td style="padding:28px;">
                 @if ($welcome)

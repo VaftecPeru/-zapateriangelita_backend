@@ -63,13 +63,33 @@ class User extends Authenticatable
 
     public function sendPasswordResetNotification($token): void
     {
+        $startedAt = microtime(true);
+        $transport = (string) config('mail.default');
+        $host = $transport === 'smtp' ? (string) config('mail.mailers.smtp.host') : null;
+
+        Log::info('PASSWORD_RESET_EMAIL_ATTEMPT', [
+            'user_id' => $this->id,
+            'transport' => $transport,
+            'smtp_host' => $host,
+        ]);
+
         try {
             Mail::to($this->email)->send(new PasswordResetLinkMail($this, (string) $token));
+
+            // SMTP accepted the message; this does not prove inbox delivery.
+            Log::info('PASSWORD_RESET_EMAIL_ACCEPTED', [
+                'user_id' => $this->id,
+                'transport' => $transport,
+                'elapsed_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+            ]);
         } catch (\Throwable $e) {
             Log::error('PASSWORD_RESET_EMAIL_FAILED', [
                 'user_id' => $this->id,
+                'transport' => $transport,
+                'smtp_host' => $host,
                 'exception' => get_class($e),
-                'message' => $e->getMessage(),
+                'elapsed_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                // Exception text could contain SMTP credentials or reset URL; do not log it.
             ]);
 
             throw $e;

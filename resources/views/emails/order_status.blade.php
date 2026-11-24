@@ -4,7 +4,7 @@
 <body style="margin:0;padding:0;background-color:#ffffff;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;">
 @php
     $frontend = rtrim(env('FRONTEND_URL', 'https://zapateriangelita.com'), '/');
-    $logo = 'https://zapateriangelita.com/images/logo-email.png';
+    $logo = app(\App\Services\BrandingService::class)->logoUrl();
     $labels = ['sin_preparar'=>'Sin preparar','preparado'=>'Preparado','enviado'=>'Enviado','entregado'=>'Entregado','finalizado'=>'Finalizado','cancelado'=>'Cancelado'];
     $label = $labels[$order->status] ?? ucfirst((string) $order->status);
     $purchasesUrl = $frontend . '/profile/purchases';

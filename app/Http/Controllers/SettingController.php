@@ -6,6 +6,8 @@ use App\Models\Setting;
 use App\Services\MediaStorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
 class SettingController extends Controller
@@ -23,6 +25,8 @@ class SettingController extends Controller
         'privacy_policy',
         'homepage_banners',
         'store_preloader',
+        'store_preloader_image',
+        'social_links',
     ];
 
     private const EDITABLE_KEYS = [
@@ -34,6 +38,7 @@ class SettingController extends Controller
         'privacy_policy',
         'homepage_banners',
         'store_preloader',
+        'social_links',
     ];
 
     public function index(): JsonResponse
@@ -66,6 +71,10 @@ class SettingController extends Controller
             return $this->uploadLogoImage($request);
         }
 
+        if ($key === 'store_preloader_image_upload') {
+            return $this->uploadPreloaderImage($request);
+        }
+
         if (!in_array($key, self::EDITABLE_KEYS, true)) {
             return response()->json([
                 'message' => 'La configuración solicitada no está permitida.',
@@ -82,6 +91,8 @@ class SettingController extends Controller
             $rules['value'] = ['required', 'string', 'in:branded,simple'];
         } elseif ($key === 'logo_url') {
             $rules['value'] = ['required', 'string', 'max:2048'];
+        } elseif ($key === 'social_links') {
+            $rules['value'] = ['required', 'string', 'json', 'max:5000'];
         }
 
         $validated = $request->validate($rules);
@@ -98,6 +109,19 @@ class SettingController extends Controller
 
         if ($key === 'homepage_banners') {
             $this->validateHomepageBanners((string) $validated['value']);
+        }
+
+        if ($key === 'social_links') {
+            Validator::make(
+                ['links' => json_decode($validated['value'], true)],
+                [
+                    'links' => ['required', 'array:instagram,facebook'],
+                    'links.instagram' => ['present', 'nullable', 'string', 'url:https', 'max:2048'],
+                    'links.facebook' => ['present', 'nullable', 'string', 'url:https', 'max:2048'],
+                ],
+                ['links.*.url' => 'Usa un enlace completo que comience con https://.'],
+                ['links.instagram' => 'Instagram', 'links.facebook' => 'Facebook'],
+            )->validate();
         }
 
         $setting = Setting::updateOrCreate(
@@ -169,6 +193,26 @@ class SettingController extends Controller
             'data' => [
                 'path' => $path,
             ],
+        ]);
+    }
+
+    private function uploadPreloaderImage(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'image' => ['required', 'image', 'mimetypes:image/gif,image/png,image/webp', 'max:8192'],
+        ]);
+
+        $path = $this->media->storePreloaderAsset($validated['image']);
+
+        DB::transaction(function () use ($path): void {
+            Setting::updateOrCreate(['key' => 'store_preloader_image'], ['value' => $path]);
+            Setting::updateOrCreate(['key' => 'store_preloader'], ['value' => 'branded']);
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Precarga publicada correctamente.',
+            'data' => ['path' => $path, 'mode' => 'branded'],
         ]);
     }
 

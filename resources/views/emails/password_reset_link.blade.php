@@ -8,7 +8,7 @@
 <body style="margin:0;padding:0;background-color:#ffffff;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;">
 @php
     $frontend = rtrim(env('FRONTEND_URL', 'https://zapateriangelita.com'), '/');
-    $logo = 'https://zapateriangelita.com/images/logo-email.png';
+    $logo = app(\App\Services\BrandingService::class)->logoUrl();
     $resetUrl = $frontend . '/reset-password?token='
         . rawurlencode($token)
         . '&email='

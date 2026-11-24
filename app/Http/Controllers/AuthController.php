@@ -172,13 +172,16 @@ class AuthController extends Controller
         $emailForBroker = $existingUser?->email ?? $request->email;
 
         try {
-            \Illuminate\Support\Facades\Password::broker()->sendResetLink([
+            $status = \Illuminate\Support\Facades\Password::broker()->sendResetLink([
                 'email' => $emailForBroker,
+            ]);
+            Log::info('PASSWORD_RESET_REQUEST_PROCESSED', [
+                'broker_status' => $status,
             ]);
         } catch (\Throwable $e) {
             Log::error('PASSWORD_RESET_LINK_DELIVERY_FAILED', [
                 'exception' => get_class($e),
-                'message' => $e->getMessage(),
+                // Avoid logging exception messages that might contain credentials.
             ]);
         }
 
