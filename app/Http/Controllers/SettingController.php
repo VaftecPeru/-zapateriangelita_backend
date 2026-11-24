@@ -157,8 +157,12 @@ class SettingController extends Controller
             $image = trim((string) ($banner['image'] ?? ''));
             $textColor = trim((string) ($banner['textColor'] ?? '#ffffff'));
 
-            if ($title === '' || mb_strlen($title) > 120) {
-                abort(422, 'Cada banner debe tener un título de hasta 120 caracteres.');
+            if (mb_strlen($title) > 120) {
+                abort(422, 'El título del banner es opcional y admite hasta 120 caracteres.');
+            }
+
+            if (isset($banner['mode']) && !in_array($banner['mode'], ['image', 'content'], true)) {
+                abort(422, 'La modalidad del banner no es válida.');
             }
 
             if ($image === '' || mb_strlen($image) > 2048) {
