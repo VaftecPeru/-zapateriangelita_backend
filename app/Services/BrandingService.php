@@ -9,7 +9,7 @@ class BrandingService
 {
     public function logoUrl(): string
     {
-        $frontend = rtrim((string) env('FRONTEND_URL', 'https://zapateriangelita.com'), '/');
+        $frontend = rtrim((string) config('cors.allowed_origins.0', 'https://zapateriangelita.com'), '/');
         $fallback = $frontend . '/logo-angelita-horizontal.png';
 
         if (!Schema::hasTable('settings')) {
