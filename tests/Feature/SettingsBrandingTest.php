@@ -88,6 +88,27 @@ class SettingsBrandingTest extends TestCase
         );
     }
 
+    public function test_homepage_banner_allows_empty_copy_and_validates_mode(): void
+    {
+        Sanctum::actingAs($this->user('banner-admin@example.com', 'superadmin'));
+        $banner = [
+            'id' => 'image-only',
+            'mode' => 'image',
+            'title' => '',
+            'eyebrow' => '',
+            'description' => '',
+            'image' => '/uploads/banners/banner.webp',
+            'textColor' => '#ffffff',
+            'active' => true,
+        ];
+        $payload = json_encode([$banner]);
+        $this->putJson('/api/settings/homepage_banners', ['value' => $payload])->assertOk();
+        $this->assertSame($payload, Setting::where('key', 'homepage_banners')->value('value'));
+        $this->putJson('/api/settings/homepage_banners', ['value' => json_encode([array_replace($banner, ['mode' => 'invalid'])])])->assertStatus(422);
+        $this->putJson('/api/settings/homepage_banners', ['value' => json_encode([array_replace($banner, ['image' => ''])])])->assertStatus(422);
+        $this->putJson('/api/settings/homepage_banners', ['value' => json_encode([array_replace($banner, ['title' => str_repeat('a', 121)])])])->assertStatus(422);
+    }
+
     public function test_superadmin_can_upload_and_persist_site_logo(): void
     {
         $superadmin = $this->user('logo-admin@example.com', 'superadmin');
