@@ -7,6 +7,7 @@ use App\Services\MediaStorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
 class SettingController extends Controller
@@ -25,6 +26,7 @@ class SettingController extends Controller
         'homepage_banners',
         'store_preloader',
         'store_preloader_image',
+        'social_links',
     ];
 
     private const EDITABLE_KEYS = [
@@ -36,6 +38,7 @@ class SettingController extends Controller
         'privacy_policy',
         'homepage_banners',
         'store_preloader',
+        'social_links',
     ];
 
     public function index(): JsonResponse
@@ -88,6 +91,8 @@ class SettingController extends Controller
             $rules['value'] = ['required', 'string', 'in:branded,simple'];
         } elseif ($key === 'logo_url') {
             $rules['value'] = ['required', 'string', 'max:2048'];
+        } elseif ($key === 'social_links') {
+            $rules['value'] = ['required', 'string', 'json', 'max:5000'];
         }
 
         $validated = $request->validate($rules);
@@ -104,6 +109,19 @@ class SettingController extends Controller
 
         if ($key === 'homepage_banners') {
             $this->validateHomepageBanners((string) $validated['value']);
+        }
+
+        if ($key === 'social_links') {
+            Validator::make(
+                ['links' => json_decode($validated['value'], true)],
+                [
+                    'links' => ['required', 'array:instagram,facebook'],
+                    'links.instagram' => ['present', 'nullable', 'string', 'url:https', 'max:2048'],
+                    'links.facebook' => ['present', 'nullable', 'string', 'url:https', 'max:2048'],
+                ],
+                ['links.*.url' => 'Usa un enlace completo que comience con https://.'],
+                ['links.instagram' => 'Instagram', 'links.facebook' => 'Facebook'],
+            )->validate();
         }
 
         $setting = Setting::updateOrCreate(
