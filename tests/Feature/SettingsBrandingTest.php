@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\BrandingService;
 use App\Services\MediaStorageService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\UploadedFile;
@@ -199,6 +200,41 @@ class SettingsBrandingTest extends TestCase
         $this->putJson('/api/settings/whatsapp_number', [
             'value' => '+51900112844',
         ])->assertOk();
+    }
+
+    public function test_email_logo_preserves_transparency_and_black_details_in_png(): void
+    {
+        config(['app.url' => 'https://api.zapateriangelita.com']);
+        $media = app(MediaStorageService::class);
+        $relative = 'uploads/settings/logo_configurado.webp';
+        $media->ensureDirectory(dirname($relative));
+        $source = $media->absolutePath($relative);
+
+        $image = imagecreatetruecolor(8, 8);
+        imagealphablending($image, false);
+        imagesavealpha($image, true);
+        imagefill($image, 0, 0, imagecolorallocatealpha($image, 0, 0, 0, 127));
+        imagesetpixel($image, 4, 4, imagecolorallocate($image, 0, 0, 0));
+        $this->assertTrue(imagewebp($image, $source, IMG_WEBP_LOSSLESS));
+        $original = hash_file('sha256', $source);
+
+        $setting = Setting::create(['key' => 'logo_url', 'value' => $media->publicUrl($relative)]);
+        $branding = app(BrandingService::class);
+        $url = $branding->logoUrl();
+        $this->assertStringStartsWith('https://api.zapateriangelita.com/api/media/uploads/settings/email-logo-', $url);
+        $this->assertStringEndsWith('.png', $url);
+        $this->get(parse_url($url, PHP_URL_PATH))->assertOk()->assertHeader('Content-Type', 'image/png');
+
+        $png = imagecreatefrompng($media->resolveForRead($url));
+        $this->assertSame(127, (imagecolorat($png, 0, 0) >> 24) & 0x7f);
+        $this->assertSame(0, imagecolorat($png, 4, 4));
+        $this->assertSame($original, hash_file('sha256', $source));
+        $this->assertSame($media->publicUrl($relative), $setting->fresh()->value);
+        $this->assertSame($url, $branding->logoUrl());
+
+        imagesetpixel($image, 4, 4, imagecolorallocate($image, 255, 0, 0));
+        $this->assertTrue(imagewebp($image, $source, IMG_WEBP_LOSSLESS));
+        $this->assertNotSame($url, $branding->logoUrl());
     }
 
     public function test_admin_can_publish_and_remove_social_links(): void
