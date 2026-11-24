@@ -7,6 +7,8 @@ use App\Models\Category;
 use App\Models\Product;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\File;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -87,6 +89,40 @@ class ProductArticleModelsTest extends TestCase
         $payload['variant_stocks'] = json_encode($data);
         $this->postJson('/api/products', $payload)->assertUnprocessable();
         $this->assertDatabaseCount('products', 0);
+    }
+
+    public function test_photo_order_preserves_the_cover_and_keeps_color_galleries_separate(): void
+    {
+        $root = storage_path('framework/testing/product-photo-order');
+        config(['media.root' => $root]);
+        $picture = fn (string $name) => UploadedFile::fake()->image($name, 24, 24);
+
+        try {
+            $payload = $this->productData();
+            $payload['new_images'] = [$picture('portada.jpg'), $picture('detalle.jpg')];
+            $payload['color_image_slots'] = json_encode([['__NEW__'], ['__NEW__']]);
+            $payload['color_images'] = [[$picture('negro.jpg')], [$picture('beige.jpg')]];
+            $this->post('/api/products', $payload, ['Accept' => 'application/json'])->assertCreated();
+            $before = Product::where('product_code', '2001')->firstOrFail();
+            $this->assertSame($before->images[0], $before->img);
+
+            $this->put('/api/products/'.$before->id, [
+                'image_slots' => json_encode($before->images),
+                'color_image_slots' => json_encode([
+                    [$before->color_images['Negro'][0], '__NEW__'],
+                    $before->color_images['Beige'],
+                ]),
+                'color_images' => [[$picture('negro-lateral.jpg')]],
+            ], ['Accept' => 'application/json'])->assertOk();
+            $after = $before->fresh();
+            $this->assertSame($before->img, $after->img);
+            $this->assertSame($before->images, $after->images);
+            $this->assertSame($before->color_images['Negro'][0], $after->color_images['Negro'][0]);
+            $this->assertCount(2, $after->color_images['Negro']);
+            $this->assertSame($before->color_images['Beige'], $after->color_images['Beige']);
+        } finally {
+            File::deleteDirectory($root);
+        }
     }
 
     public function test_same_color_cannot_have_conflicting_article_models(): void
