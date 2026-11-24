@@ -394,6 +394,10 @@ class ProductController extends Controller
     {
         $uploaded = $request->file('color_images', []);
         $existing = $existing ?? [];
+        $slots = $request->input('color_image_slots');
+        if ($slots !== null) {
+            return $this->processOrderedColorImages(json_decode($slots, true), $colors, $uploaded, $existing);
+        }
         $result = [];
 
         foreach ($colors as $index => $color) {
@@ -410,6 +414,44 @@ class ProductController extends Controller
         }
 
         return $result ?: null;
+    }
+
+    private function processOrderedColorImages(mixed $slots, array $colors, array $uploaded, array $existing): ?array
+    {
+        $invalidGallery = ValidationException::withMessages([
+            'color_image_slots' => 'Las fotos deben corresponder a su color y conservar el orden indicado.',
+        ]);
+        if (!is_array($slots) || !array_is_list($slots) || count($slots) !== count($colors) ||
+            array_diff_key($uploaded, $slots)) {
+            throw $invalidGallery;
+        }
+
+        $known = $this->flattenImageValues($existing);
+        $galleries = [];
+        foreach ($colors as $index => $color) {
+            $gallery = $slots[$index];
+            $files = array_values($uploaded[$index] ?? []);
+            if (!is_array($gallery) || !array_is_list($gallery) || count($gallery) > 5) {
+                throw $invalidGallery;
+            }
+            foreach ($gallery as $slot) {
+                if ($slot === '__NEW__' && $files) {
+                    $galleries[$color][] = array_shift($files);
+                } elseif (is_string($slot) && in_array($slot, $known, true)) {
+                    $galleries[$color][] = $slot;
+                } else {
+                    throw $invalidGallery;
+                }
+            }
+            if ($files) {
+                throw $invalidGallery;
+            }
+        }
+
+        return $galleries ? array_map(
+            fn (array $gallery) => array_map(fn ($photo) => is_string($photo) ? $photo : $this->optimizeImage($photo), $gallery),
+            $galleries,
+        ) : null;
     }
 
     private function normalizeColorSizes(?string $value): ?array
@@ -589,6 +631,9 @@ class ProductController extends Controller
             'img' => 'nullable',
             'img_file' => 'nullable|file|image|mimes:jpeg,png,jpg,gif,webp|max:20480',
             'new_images.*' => 'nullable|file|image|mimes:jpeg,png,jpg,gif,webp|max:20480',
+            'color_images.*' => 'array',
+            'color_images.*.*' => 'file|image|mimes:jpeg,png,jpg,gif,webp|max:20480',
+            'color_image_slots' => 'sometimes|json',
             'description' => 'nullable|string|max:5000',
             'discount' => 'nullable|numeric|min:0|max:100',
             'status' => 'required|in:normal,oferta,nuevo',
@@ -659,7 +704,10 @@ class ProductController extends Controller
             $validated['img'] = $this->optimizeImage($request->file('img_file'));
         } elseif (count($imageUrls) > 0) {
             $validated['img'] = $imageUrls[0];
+        } elseif ($request->has('color_image_slots')) {
+            $validated['img'] = $this->flattenImageValues($validated['color_images'])[0] ?? null;
         }
+        unset($validated['color_image_slots']);
 
         try {
             $fields = ['name', 'model', 'size', 'color', 'material', 'description', 'discount'];
@@ -745,6 +793,9 @@ class ProductController extends Controller
             'discount' => 'nullable|numeric|min:0|max:100',
             'status' => 'sometimes|in:normal,oferta,nuevo',
             'color_images' => 'sometimes|array',
+            'color_images.*' => 'array',
+            'color_images.*.*' => 'file|image|mimes:jpeg,png,jpg,gif,webp|max:20480',
+            'color_image_slots' => 'sometimes|json',
             'color_sizes' => 'sometimes|json',
             'variant_stocks' => 'sometimes|json',
             'color_prices' => 'sometimes|json',
@@ -819,7 +870,7 @@ class ProductController extends Controller
         $newFiles = array_values($newFiles);
         $fileIndex = 0;
 
-        if (is_array($imageSlots) && count($imageSlots) > 0) {
+        if (is_array($imageSlots) && ($imageSlots || $request->has('color_image_slots'))) {
             foreach ($imageSlots as $i => $slot) {
                 if ($slot === '__NEW__') {
                     if (isset($newFiles[$fileIndex])) {
@@ -847,11 +898,13 @@ class ProductController extends Controller
 
         if (count($finalImages) > 0) {
             $validated['img'] = $finalImages[0];
+        } elseif ($request->has('color_image_slots')) {
+            $validated['img'] = $this->flattenImageValues($validated['color_images'])[0] ?? null;
         } else {
             $validated['img'] = null;
         }
 
-        unset($validated['img_file']);
+        unset($validated['img_file'], $validated['color_image_slots']);
 
         try {
             $previousImages = is_array($product->images) ? $product->images : [];
