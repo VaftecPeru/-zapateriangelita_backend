@@ -201,6 +201,28 @@ class SettingsBrandingTest extends TestCase
         ])->assertOk();
     }
 
+    public function test_admin_can_publish_and_remove_social_links(): void
+    {
+        Sanctum::actingAs($this->user('redes@example.com', 'admin'));
+        $links = json_encode(['instagram' => 'https://www.instagram.com/angelita/', 'facebook' => '']);
+
+        $this->putJson('/api/settings/social_links', ['value' => $links])->assertOk();
+        $this->getJson('/api/settings')->assertOk()->assertJsonPath('data.social_links', $links);
+
+        $this->putJson('/api/settings/social_links', [
+            'value' => json_encode(['instagram' => 'javascript:alert(1)', 'facebook' => '']),
+        ])->assertUnprocessable()->assertJsonValidationErrors('links.instagram');
+
+        $this->putJson('/api/settings/social_links', [
+            'value' => json_encode(['instagram' => '', 'facebook' => '', 'other' => 'https://example.com']),
+        ])->assertUnprocessable()->assertJsonValidationErrors('links');
+        $this->assertSame($links, Setting::where('key', 'social_links')->value('value'));
+
+        $removed = json_encode(['instagram' => '', 'facebook' => '']);
+        $this->putJson('/api/settings/social_links', ['value' => $removed])->assertOk();
+        $this->getJson('/api/settings')->assertOk()->assertJsonPath('data.social_links', $removed);
+    }
+
     public function test_regular_user_cannot_change_site_settings(): void
     {
         $user = $this->user('cliente@example.com', 'user');
@@ -208,6 +230,10 @@ class SettingsBrandingTest extends TestCase
 
         $this->putJson('/api/settings/logo_url', [
             'value' => '/uploads/settings/logo.webp',
+        ])->assertForbidden();
+
+        $this->putJson('/api/settings/social_links', [
+            'value' => json_encode(['instagram' => '', 'facebook' => '']),
         ])->assertForbidden();
     }
 }
