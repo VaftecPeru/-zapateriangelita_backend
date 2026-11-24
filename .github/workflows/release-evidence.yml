@@ -12,12 +12,12 @@ on:
         description: "SHA exacto frontend main (40 caracteres)"
         type: string
         required: true
-        default: "04d1c04bb97d0d900f3fdff57bd8e26e6c727a3f"
+        default: "43603170f104ed2c2e6c111eb85465d74029e8f5"
       backend_main_sha:
         description: "SHA exacto backend main (40 caracteres)"
         type: string
         required: true
-        default: "fdbf9cdfc21411ba9daf5484f34fc5e1c95ef088"
+        default: "4732dd8b500756fd73585573b34fa18cb3e48ed4"
 
 permissions:
   contents: read
@@ -34,8 +34,8 @@ jobs:
     timeout-minutes: 8
     env:
       GITHUB_TOKEN: ${{ github.token }}
-      EXPECTED_FRONTEND_SHA: ${{ inputs.frontend_main_sha || '04d1c04bb97d0d900f3fdff57bd8e26e6c727a3f' }}
-      EXPECTED_BACKEND_SHA: ${{ inputs.backend_main_sha || 'fdbf9cdfc21411ba9daf5484f34fc5e1c95ef088' }}
+      EXPECTED_FRONTEND_SHA: ${{ inputs.frontend_main_sha || '43603170f104ed2c2e6c111eb85465d74029e8f5' }}
+      EXPECTED_BACKEND_SHA: ${{ inputs.backend_main_sha || '4732dd8b500756fd73585573b34fa18cb3e48ed4' }}
     steps:
       - name: Checkout audited source
         uses: actions/checkout@v4
@@ -47,18 +47,6 @@ jobs:
 
       - name: Validate main SHAs, GitHub Actions and artifact metadata
         run: python3 scripts/release_evidence.py
-
-      # Read-only diagnostic of the newly observed main SHAs. The existing gate
-      # remains unchanged and must still pass before the branch is merged.
-      - name: Audit observed main candidates (read only, no deploy)
-        if: always()
-        env:
-          EXPECTED_FRONTEND_SHA: "43603170f104ed2c2e6c111eb85465d74029e8f5"
-          EXPECTED_BACKEND_SHA: "4732dd8b500756fd73585573b34fa18cb3e48ed4"
-        run: |
-          mkdir -p "$RUNNER_TEMP/angelita-candidate-audit"
-          cd "$RUNNER_TEMP/angelita-candidate-audit"
-          python3 "$GITHUB_WORKSPACE/scripts/release_evidence.py"
 
       - name: Publish audit evidence (no secrets)
         if: always()
